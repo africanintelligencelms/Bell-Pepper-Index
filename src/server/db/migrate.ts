@@ -2,7 +2,7 @@ import { PoolClient } from 'pg';
 import { getPool, isDatabaseConfigured, withTransaction } from './client';
 import { SCHEMA_SQL, SCHEMA_VERSION } from './schema';
 import { INITIAL_PRICE_RECORDS } from '../../data/seedPrices';
-import { DEFAULT_PRICE_BANDS, INITIAL_COP_BREAKDOWN } from '../../data/marketCommunityData';
+import { DEFAULT_PRICE_BANDS, INITIAL_COP_BREAKDOWN, VERIFIED_OFFTAKERS } from '../../data/marketCommunityData';
 
 /**
  * Advisory lock id. Several lambdas can cold-start at once and each will try to
@@ -99,6 +99,34 @@ async function seedCopItems(client: PoolClient): Promise<void> {
   }
 }
 
+/**
+ * The seeded buyers came out of the WhatsApp group and were vetted there, so
+ * they seed verified. Everything added through the API afterwards starts
+ * unverified regardless of what the client sends.
+ */
+async function seedOfftakers(client: PoolClient): Promise<void> {
+  for (const offtaker of VERIFIED_OFFTAKERS) {
+    await client.query(
+      `INSERT INTO offtakers (
+         id, name, phone, location, crops, buyer_type,
+         verified_by_community, notes, submitted_by
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        offtaker.id,
+        offtaker.name,
+        offtaker.phone,
+        offtaker.location,
+        offtaker.crops,
+        offtaker.buyerType,
+        offtaker.verifiedByCommunity,
+        offtaker.notes,
+        '',
+      ],
+    );
+  }
+}
+
 /** Applies the schema and seeds reference data. Safe to call repeatedly. */
 export async function migrate(): Promise<void> {
   const client = await getPool().connect();
@@ -109,6 +137,7 @@ export async function migrate(): Promise<void> {
     const seeded = await seedPriceRecords(client);
     await seedPriceBands(client);
     await seedCopItems(client);
+    await seedOfftakers(client);
     await client.query('COMMIT');
     console.log(
       seeded > 0

@@ -4,7 +4,7 @@
  * runtime, where a sibling .sql file is not guaranteed to be present on disk.
  */
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -63,4 +63,39 @@ CREATE TABLE IF NOT EXISTS cop_items (
   sort_order  INTEGER NOT NULL DEFAULT 0,
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS offtakers (
+  id                     TEXT PRIMARY KEY,
+  name                   TEXT NOT NULL,
+  phone                  TEXT NOT NULL,
+  location               TEXT NOT NULL,
+  crops                  TEXT[] NOT NULL DEFAULT '{}',
+  buyer_type             TEXT NOT NULL CHECK (buyer_type IN (
+                           'hotel_supermarket', 'wholesale_market', 'aggregator', 'processor')),
+  -- Community submissions land unverified. A buyer badge that anyone can mint
+  -- is worse than no badge: farmers hand perishable harvests to these numbers.
+  verified_by_community  BOOLEAN NOT NULL DEFAULT false,
+  notes                  TEXT NOT NULL DEFAULT '',
+  submitted_by           TEXT NOT NULL DEFAULT '',
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Verified buyers surface first; the directory is read far more than written.
+CREATE INDEX IF NOT EXISTS offtakers_verified_created_idx
+  ON offtakers (verified_by_community DESC, created_at DESC);
+
+-- Fixed-window counters for the Gemini-backed endpoints. This lives in the
+-- database rather than process memory because each serverless instance has its
+-- own memory: an in-process limiter would let the quota be drained by simply
+-- spreading requests across cold starts.
+CREATE TABLE IF NOT EXISTS ai_rate_limits (
+  bucket_key   TEXT NOT NULL,
+  window_start TIMESTAMPTZ NOT NULL,
+  hits         INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (bucket_key, window_start)
+);
+
+CREATE INDEX IF NOT EXISTS ai_rate_limits_window_idx
+  ON ai_rate_limits (window_start);
 `;

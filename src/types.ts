@@ -79,8 +79,15 @@ export interface OfftakerContact {
   location: string;
   crops: string[]; // e.g. ['Bell Peppers (Coloured & Green)', 'Cucumbers', 'Tomatoes']
   buyerType: 'hotel_supermarket' | 'wholesale_market' | 'aggregator' | 'processor';
+  /**
+   * Only an admin can set this. A community submission arrives false and is
+   * shown as unverified until someone with the token vouches for the buyer.
+   */
   verifiedByCommunity: boolean;
   notes: string;
+  /** Name the submitting farmer gave, for follow-up. Empty for seeded entries. */
+  submittedBy?: string;
+  createdAt?: string;
 }
 
 export interface CostBreakdownItem {

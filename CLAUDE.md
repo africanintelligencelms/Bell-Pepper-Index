@@ -97,8 +97,12 @@ configuration-changing writes require the `x-admin-token` header.
 | `GET` | `/api/price-bands`, `/api/cop-items` | public |
 | `PUT` | `/api/price-bands`, `/api/cop-items` | **admin** (upsert) |
 | `DELETE` | `/api/price-bands/:hub`, `/api/cop-items/:id` | **admin** |
-| `POST` | `/api/parse-whatsapp` | public — Gemini extraction |
-| `POST` | `/api/predict-price` | public — Gemini, with deterministic fallback |
+| `GET` | `/api/offtakers` | public — verified buyers first |
+| `POST` | `/api/offtakers` | public — always lands **unverified** |
+| `PUT` | `/api/offtakers/:id/verify` | **admin** — `{ verified: bool }`, demotion included |
+| `DELETE` | `/api/offtakers/:id` | **admin** |
+| `POST` | `/api/parse-whatsapp` | public — Gemini extraction, rate limited |
+| `POST` | `/api/predict-price` | public — Gemini, deterministic fallback, rate limited |
 
 `requireAdmin` **fails closed**: with `ADMIN_TOKEN` unset it returns 503 rather than allowing
 everything. The token is compared with `timingSafeEqual`.
@@ -106,6 +110,53 @@ everything. The token is compared with `timingSafeEqual`.
 The admin token is never bundled into the client — the build is public, so a compiled-in token
 would be a token published to every farmer. `src/lib/adminToken.ts` keeps it in the admin's own
 `localStorage` and prompts on first use, clearing it if the server rejects it.
+
+### The offtaker verified badge
+
+Anyone may submit a buyer contact — a farmer who finds one mid-WhatsApp-conversation should be
+able to share it immediately. But the submission **always lands unverified**:
+`parseOfftaker` does not read `verifiedByCommunity` from the body at all, so a client cannot
+self-verify however it crafts the request. Only `PUT /api/offtakers/:id/verify` changes it.
+
+This is a trust boundary, not a nicety. Farmers hand perishable harvests to these phone
+numbers, and a badge anyone can mint is worse than no badge — it launders a stranger into a
+vetted contact. The UI labels unverified entries in amber rather than leaving them blank
+(absence of a badge reads as an oversight), sorts them behind verified buyers, and warns the
+submitter before they submit so the tag is not a surprise.
+
+Un-verifying is supported deliberately: a buyer who stops paying must be demotable without
+deleting the record and losing the history.
+
+### Rate limiting the AI endpoints
+
+`/api/parse-whatsapp` and `/api/predict-price` are public and every call spends Gemini quota.
+Anyone who finds the URL can drain the project's allowance — in practice a larger risk than key
+leakage, since the key never leaves the server.
+
+The limiter is a fixed-window counter in Postgres (`ai_rate_limits`), **not** in process
+memory. Each serverless instance has its own memory, so an in-process limiter would be bypassed
+by simply spreading requests across cold starts. Verified by running two processes against one
+database: the fourth request over a limit of three was rejected by the instance that had only
+seen one of them.
+
+It **fails open** — if the counter table is unreachable the request proceeds and the error is
+logged. Blocking farmers because a counter is down trades a cost problem for an availability
+one. Client IP prefers Vercel's `x-vercel-forwarded-for` (platform-set) over the
+client-spoofable `x-forwarded-for`.
+
+### Handling the Gemini key
+
+- The key is read only in `src/server/ai/client.ts`, server-side. It is never sent to the
+  browser and never appears in a response body, log line, or error message.
+- **Never prefix it with `VITE_`.** Vite inlines every `VITE_*` variable into the client bundle
+  at build time, which would publish the key to every visitor. This is the single most common
+  way a key leaks from a Vite app.
+- `/api/health` reports `gemini.configured` as a boolean only. Health output gets pasted into
+  chats and issue trackers, so it must never carry the value.
+- `.env*` is gitignored apart from `.env.example`. On Vercel the key lives in project
+  environment variables, marked **Sensitive** so it cannot be read back from the dashboard.
+- Scope production and preview to **different keys**. Preview deployments are reachable by
+  anyone with the URL, so a preview key should be separately revocable and quota-capped.
 
 ## Conventions
 
@@ -156,10 +207,13 @@ without the first the app is non-persistent, without the second all admin action
 
 - **No test suite.** `npm run lint` is typecheck only. Verification so far has been manual
   against a real Postgres.
-- **The offtaker directory is still hardcoded** in `src/data/marketCommunityData.ts` and
-  additions live only in component state — they are lost on refresh. It was deliberately left
-  out of the first persistence pass.
-- **`/api/predict-price` calls Gemini on every records-count change**, with no caching. This is
-  the obvious next cost optimisation.
+- **`/api/predict-price` calls Gemini on every records-count change**, with no caching.
+  Deferred to a future release; the design is sketched in a `TODO(next release)` block above the
+  route in `src/server/routes/ai.ts`. Rate limiting caps the damage in the meantime but does not
+  remove the redundant calls.
+- **No build-time secret scan.** Nothing currently fails the build if a secret reaches
+  `dist/`. The `VITE_` rule above is enforced by convention only.
+- **`.vercel/` is not gitignored.** It holds project linkage rather than credentials, but it
+  should not be committed.
 - **`GEMINI_MODEL` defaults to `gemini-3.6-flash`**, carried over from the original code and
   not independently verified here. Override it with the env var if that id is wrong.

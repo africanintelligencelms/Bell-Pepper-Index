@@ -5,6 +5,7 @@ import { createApiApp } from './src/server/app';
 import { closePool } from './src/server/db/client';
 import { ensureSchema } from './src/server/db/migrate';
 import { store } from './src/server/store';
+import { isGeminiConfigured } from './src/server/ai/client';
 import express from 'express';
 
 /**
@@ -24,6 +25,16 @@ async function startServer() {
     console.warn(
       'DATABASE_URL is not set — running with the in-memory store. ' +
         'Submissions will be lost when this process exits.',
+    );
+  }
+
+  if (!isGeminiConfigured()) {
+    // Surfaced at boot rather than on a farmer's first paste: without the key,
+    // chat extraction fails outright and the market panel silently degrades to
+    // its deterministic fallback.
+    console.warn(
+      'GEMINI_API_KEY is not set — WhatsApp extraction will fail and market ' +
+        'intelligence will serve the deterministic fallback.',
     );
   }
 

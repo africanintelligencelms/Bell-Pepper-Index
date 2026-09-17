@@ -4,6 +4,7 @@ import { PriceRecord, PricePredictionResult, WhatsAppParsedEntry } from '../../t
 import { GEMINI_MODEL, getGeminiClient } from '../ai/client';
 import { MARKET_PREDICTION_INSTRUCTION, WHATSAPP_EXTRACTION_INSTRUCTION } from '../ai/prompts';
 import { asyncHandler } from '../http';
+import { PREDICT_LIMIT, WHATSAPP_PARSE_LIMIT, rateLimit } from '../middleware/rateLimit';
 import { store } from '../store';
 import { ValidationError, todayIso } from '../validation';
 
@@ -79,6 +80,7 @@ const PREDICTION_RESPONSE_SCHEMA = {
 
 aiRouter.post(
   '/parse-whatsapp',
+  rateLimit('parse-whatsapp', WHATSAPP_PARSE_LIMIT),
   asyncHandler(async (req, res) => {
     const chatText = req.body?.chatText;
     if (typeof chatText !== 'string' || chatText.trim().length === 0) {
@@ -167,8 +169,29 @@ function fallbackPrediction(records: PriceRecord[]): PricePredictionResult {
   };
 }
 
+/**
+ * TODO(next release): cache predictions instead of calling Gemini per request.
+ *
+ * Today this fires on every records-count change in MarketIntelligencePanel, so
+ * a busy logging session can trigger a dozen identical analyses. The community
+ * index moves over days, not seconds — a stale-by-an-hour recommendation is
+ * indistinguishable from a fresh one to a farmer negotiating a price.
+ *
+ * Sketch:
+ *   ai_predictions (id SERIAL, payload JSONB, record_count INT, created_at TIMESTAMPTZ)
+ *   - Serve the newest row when age < PREDICTION_CACHE_TTL_MINUTES (propose 30).
+ *   - Invalidate early if record_count has moved more than ~10%, so a genuine
+ *     surge in submissions still refreshes the advice.
+ *   - Keep the deterministic fallback ahead of the cache: a stale cached answer
+ *     is still better than a blank panel, so serve cache on a Gemini error too.
+ *   - Return the row's created_at as `generatedAt` so the panel can show
+ *     "as of 14:20" rather than implying real-time data.
+ *
+ * Deliberately not implemented yet — deferred to a future release.
+ */
 aiRouter.post(
   '/predict-price',
+  rateLimit('predict-price', PREDICT_LIMIT),
   asyncHandler(async (_req, res) => {
     const records = await store.listPriceRecords(200);
 

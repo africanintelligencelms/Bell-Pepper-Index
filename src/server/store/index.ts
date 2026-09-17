@@ -1,8 +1,11 @@
-import { CostBreakdownItem, PriceRecord, UnifiedPriceBand } from '../../types';
+import { CostBreakdownItem, OfftakerContact, PriceRecord, UnifiedPriceBand } from '../../types';
 import { isDatabaseConfigured } from '../db/client';
 import { ensureSchema, resetToSeed } from '../db/migrate';
 import * as priceRepo from '../repositories/priceRecords';
 import * as configRepo from '../repositories/marketConfig';
+import * as offtakerRepo from '../repositories/offtakers';
+import * as rateLimitRepo from '../repositories/rateLimits';
+import type { RateLimitResult } from '../repositories/rateLimits';
 import { memoryStore } from './memoryStore';
 
 /**
@@ -86,5 +89,48 @@ export const store = {
   async deleteCopItem(id: string): Promise<boolean> {
     if (await ready()) return configRepo.deleteCopItem(id);
     return memoryStore.deleteCopItem(id);
+  },
+
+  async listOfftakers(): Promise<OfftakerContact[]> {
+    if (await ready()) return offtakerRepo.listOfftakers();
+    return memoryStore.listOfftakers();
+  },
+
+  async insertOfftaker(offtaker: OfftakerContact): Promise<OfftakerContact> {
+    if (await ready()) return offtakerRepo.insertOfftaker(offtaker);
+    return memoryStore.insertOfftaker(offtaker);
+  },
+
+  async setOfftakerVerified(id: string, verified: boolean): Promise<OfftakerContact | null> {
+    if (await ready()) return offtakerRepo.setOfftakerVerified(id, verified);
+    return memoryStore.setOfftakerVerified(id, verified);
+  },
+
+  async deleteOfftaker(id: string): Promise<boolean> {
+    if (await ready()) return offtakerRepo.deleteOfftaker(id);
+    return memoryStore.deleteOfftaker(id);
+  },
+
+  /**
+   * Fails open. A limiter that blocks farmers because the counter table is
+   * unreachable trades a cost problem for an availability one; the error is
+   * logged so the failure is not silent.
+   */
+  async consumeRateLimit(bucketKey: string, limit: number, windowMs: number): Promise<RateLimitResult> {
+    try {
+      if (await ready()) {
+        const result = await rateLimitRepo.consumeRateLimit(bucketKey, limit, windowMs);
+        // Prune on the request that crosses the limit, which is rare enough to
+        // stay cheap but frequent enough to keep the table bounded.
+        if (!result.allowed) {
+          await rateLimitRepo.pruneRateLimits(windowMs).catch(() => undefined);
+        }
+        return result;
+      }
+    } catch (err) {
+      console.error('Rate limiter unavailable, allowing request:', err instanceof Error ? err.message : err);
+      return { allowed: true, remaining: limit, resetAt: Date.now() + windowMs, limit };
+    }
+    return memoryStore.consumeRateLimit(bucketKey, limit, windowMs);
   },
 };

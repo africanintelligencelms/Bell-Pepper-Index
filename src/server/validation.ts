@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import {
   CostBreakdownItem,
+  OfftakerContact,
   PepperType,
   PriceRecord,
   ProductionMethod,
@@ -23,6 +24,12 @@ const TRANSACTION_TYPES: TransactionType[] = ['actual_sale', 'buyer_offer', 'far
 const PRODUCTION_METHODS: ProductionMethod[] = ['greenhouse', 'open_field'];
 const QUALITY_GRADES: QualityGrade[] = ['grade_a', 'grade_b'];
 const SOURCES: PriceRecord['source'][] = ['manual_entry', 'whatsapp_extracted', 'seed_data'];
+const BUYER_TYPES: OfftakerContact['buyerType'][] = [
+  'hotel_supermarket',
+  'wholesale_market',
+  'aggregator',
+  'processor',
+];
 const COP_CATEGORIES: CostBreakdownItem['category'][] = [
   'seedlings',
   'substrate_nutrients',
@@ -192,5 +199,66 @@ export function parseCopItem(input: unknown): CostBreakdownItem {
     label,
     costNgn: requiredNumber(body.costNgn, 'costNgn', 0, MAX_PRICE_NGN),
     isVariable: body.isVariable === undefined ? true : Boolean(body.isVariable),
+  };
+}
+
+const MAX_CROPS = 12;
+
+/**
+ * Nigerian numbers arrive as "+234 803 632 9227", "0803 632 9227" or
+ * "234-803-632-9227". Only the shape is checked — a directory that rejected an
+ * oddly formatted but real buyer would cost a farmer a sale.
+ */
+function phone(value: unknown): string {
+  const raw = text(value, 'phone', 40);
+  if (!raw) throw new ValidationError('phone is required');
+  const digits = raw.replace(/[^0-9]/g, '');
+  if (digits.length < 10 || digits.length > 15) {
+    throw new ValidationError('phone must contain between 10 and 15 digits');
+  }
+  return raw;
+}
+
+function cropList(value: unknown): string[] {
+  // The form submits a comma-separated string; the API also accepts an array.
+  const raw = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+
+  const crops = raw
+    .map((crop) => String(crop).trim())
+    .filter((crop) => crop.length > 0 && crop.length <= 80);
+
+  if (crops.length === 0) throw new ValidationError('at least one crop is required');
+  return crops.slice(0, MAX_CROPS);
+}
+
+/**
+ * `verifiedByCommunity` is deliberately not read from the body. A submission
+ * that could set its own verified flag would make the badge meaningless, and
+ * the badge is what a farmer leans on before trusting a stranger with a
+ * harvest. Only the admin verify endpoint can change it.
+ */
+export function parseOfftaker(input: unknown): OfftakerContact {
+  if (typeof input !== 'object' || input === null) {
+    throw new ValidationError('Request body must be an object');
+  }
+  const body = input as Record<string, unknown>;
+
+  const name = text(body.name, 'name', 160);
+  if (!name) throw new ValidationError('name is required');
+
+  return {
+    id: newId('off'),
+    name,
+    phone: phone(body.phone),
+    location: text(body.location, 'location', 200, 'Nigeria'),
+    crops: cropList(body.crops),
+    buyerType: oneOf(body.buyerType, BUYER_TYPES, 'buyerType', 'aggregator'),
+    verifiedByCommunity: false,
+    notes: text(body.notes, 'notes', 2000, 'Added by community member'),
+    submittedBy: text(body.submittedBy, 'submittedBy', 120),
   };
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PriceRecord, WhatsAppParsedEntry, PepperType, TransactionType, ProductionMethod, QualityGrade, UnifiedPriceBand, CostBreakdownItem } from './types';
+import { PriceRecord, WhatsAppParsedEntry, PepperType, TransactionType, ProductionMethod, QualityGrade, UnifiedPriceBand, CostBreakdownItem, OfftakerContact } from './types';
 import { Navbar, ActiveTab } from './components/Navbar';
 import { PriceOverviewHero } from './components/PriceOverviewHero';
 import { MarketIntelligencePanel } from './components/MarketIntelligencePanel';
@@ -10,7 +10,7 @@ import { LogPriceModal } from './components/LogPriceModal';
 import { WhatsAppBroadcastCard } from './components/WhatsAppBroadcastCard';
 import { UnifiedPriceBandCard } from './components/UnifiedPriceBandCard';
 import { ProductionCostCalculator } from './components/ProductionCostCalculator';
-import { OfftakerDirectory } from './components/OfftakerDirectory';
+import { OfftakerDirectory, NewOfftakerInput } from './components/OfftakerDirectory';
 import { SimpleFarmerLogger } from './components/SimpleFarmerLogger';
 import { INITIAL_PRICE_RECORDS } from './data/seedPrices';
 import { adminRequest, getAdminToken, promptForAdminToken } from './lib/adminToken';
@@ -22,6 +22,7 @@ export default function App() {
   // bundled constants in the meantime so nothing renders empty.
   const [priceBands, setPriceBands] = useState<UnifiedPriceBand[] | undefined>(undefined);
   const [copItems, setCopItems] = useState<CostBreakdownItem[] | undefined>(undefined);
+  const [offtakers, setOfftakers] = useState<OfftakerContact[] | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -66,16 +67,24 @@ export default function App() {
   // bundled constants.
   const fetchMarketConfig = async () => {
     try {
-      const [bandsRes, copRes] = await Promise.all([
+      const [bandsRes, copRes, offtakerRes] = await Promise.all([
         fetch('/api/price-bands'),
         fetch('/api/cop-items'),
+        fetch('/api/offtakers'),
       ]);
-      const [bandsJson, copJson] = await Promise.all([bandsRes.json(), copRes.json()]);
+      const [bandsJson, copJson, offtakerJson] = await Promise.all([
+        bandsRes.json(),
+        copRes.json(),
+        offtakerRes.json(),
+      ]);
       if (bandsJson.success && Array.isArray(bandsJson.data) && bandsJson.data.length > 0) {
         setPriceBands(bandsJson.data);
       }
       if (copJson.success && Array.isArray(copJson.data) && copJson.data.length > 0) {
         setCopItems(copJson.data);
+      }
+      if (offtakerJson.success && Array.isArray(offtakerJson.data)) {
+        setOfftakers(offtakerJson.data);
       }
     } catch (err) {
       console.warn('Market config unavailable, using bundled defaults:', err);
@@ -171,6 +180,34 @@ export default function App() {
 
     // Switch to live tab
     setActiveTab('live');
+  };
+
+  // Share a buyer contact. Returns an error message, or null when saved.
+  const handleAddOfftaker = async (entry: NewOfftakerInput): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/offtakers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry),
+      });
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        return json.error || `Could not share contact (${res.status}).`;
+      }
+
+      // Insert in the server's order rather than prepending: an unverified
+      // submission must not jump ahead of vetted buyers just because it is new.
+      setOfftakers(prev =>
+        [json.data as OfftakerContact, ...(prev ?? [])].sort(
+          (a, b) => Number(b.verifiedByCommunity) - Number(a.verifiedByCommunity),
+        ),
+      );
+      showToast(`Shared ${json.data.name}. It will show as unverified until an admin confirms it.`);
+      return null;
+    } catch (err: any) {
+      return err.message || 'The server is unreachable. Please try again.';
+    }
   };
 
   // Handle delete (admin only — the server rejects an unauthenticated call)
@@ -422,7 +459,11 @@ export default function App() {
         {/* Tab 4: Verified Offtaker Directory */}
         {appMode === 'advanced' && activeTab === 'offtakers' && (
           <div className="space-y-6 animate-in fade-in duration-200">
-            <OfftakerDirectory onSelectBandTab={() => setActiveTab('band')} />
+            <OfftakerDirectory
+              offtakers={offtakers}
+              onAddOfftaker={handleAddOfftaker}
+              onSelectBandTab={() => setActiveTab('band')}
+            />
           </div>
         )}
 

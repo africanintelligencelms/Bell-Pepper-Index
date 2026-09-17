@@ -3,6 +3,7 @@ import { errorHandler } from './http';
 import { aiRouter } from './routes/ai';
 import { healthRouter } from './routes/health';
 import { marketConfigRouter } from './routes/marketConfig';
+import { offtakersRouter } from './routes/offtakers';
 import { pricesRouter } from './routes/prices';
 
 /**
@@ -19,6 +20,7 @@ export function createApiApp(): Express {
   app.use('/api', healthRouter);
   app.use('/api', pricesRouter);
   app.use('/api', marketConfigRouter);
+  app.use('/api', offtakersRouter);
   app.use('/api', aiRouter);
 
   app.use('/api', (_req, res) => {
