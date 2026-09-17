@@ -1,12 +1,12 @@
-import { CostBreakdownItem, OfftakerContact, PriceRecord, UnifiedPriceBand } from '../../types';
-import { isDatabaseConfigured } from '../db/client';
-import { ensureSchema, resetToSeed } from '../db/migrate';
-import * as priceRepo from '../repositories/priceRecords';
-import * as configRepo from '../repositories/marketConfig';
-import * as offtakerRepo from '../repositories/offtakers';
-import * as rateLimitRepo from '../repositories/rateLimits';
-import type { RateLimitResult } from '../repositories/rateLimits';
-import { memoryStore } from './memoryStore';
+import { CostBreakdownItem, OfftakerContact, PriceRecord, UnifiedPriceBand } from '../../types.js';
+import { isDatabaseConfigured } from '../db/client.js';
+import { ensureSchema, resetToSeed } from '../db/migrate.js';
+import * as priceRepo from '../repositories/priceRecords.js';
+import * as configRepo from '../repositories/marketConfig.js';
+import * as offtakerRepo from '../repositories/offtakers.js';
+import * as rateLimitRepo from '../repositories/rateLimits.js';
+import type { RateLimitResult } from '../repositories/rateLimits.js';
+import { memoryStore } from './memoryStore.js';
 
 /**
  * Single seam between the routes and whichever backend is live. Routes never

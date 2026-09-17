@@ -1,6 +1,6 @@
-import { CostBreakdownItem, OfftakerContact, PriceRecord, UnifiedPriceBand } from '../../types';
-import { INITIAL_PRICE_RECORDS } from '../../data/seedPrices';
-import { DEFAULT_PRICE_BANDS, INITIAL_COP_BREAKDOWN, VERIFIED_OFFTAKERS } from '../../data/marketCommunityData';
+import { CostBreakdownItem, OfftakerContact, PriceRecord, UnifiedPriceBand } from '../../types.js';
+import { INITIAL_PRICE_RECORDS } from '../../data/seedPrices.js';
+import { DEFAULT_PRICE_BANDS, INITIAL_COP_BREAKDOWN, VERIFIED_OFFTAKERS } from '../../data/marketCommunityData.js';
 
 /**
  * Non-persistent fallback used when DATABASE_URL is absent, so a contributor

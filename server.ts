@@ -1,11 +1,11 @@
 import 'dotenv/config';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { createApiApp } from './src/server/app';
-import { closePool } from './src/server/db/client';
-import { ensureSchema } from './src/server/db/migrate';
-import { store } from './src/server/store';
-import { isGeminiConfigured } from './src/server/ai/client';
+import { createApiApp } from './src/server/app.js';
+import { closePool } from './src/server/db/client.js';
+import { ensureSchema } from './src/server/db/migrate.js';
+import { store } from './src/server/store/index.js';
+import { isGeminiConfigured } from './src/server/ai/client.js';
 import express from 'express';
 
 /**

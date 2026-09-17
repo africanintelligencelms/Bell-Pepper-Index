@@ -1,8 +1,8 @@
 import { PoolClient } from 'pg';
-import { getPool, isDatabaseConfigured, withTransaction } from './client';
-import { SCHEMA_SQL, SCHEMA_VERSION } from './schema';
-import { INITIAL_PRICE_RECORDS } from '../../data/seedPrices';
-import { DEFAULT_PRICE_BANDS, INITIAL_COP_BREAKDOWN, VERIFIED_OFFTAKERS } from '../../data/marketCommunityData';
+import { getPool, isDatabaseConfigured, withTransaction } from './client.js';
+import { SCHEMA_SQL, SCHEMA_VERSION } from './schema.js';
+import { INITIAL_PRICE_RECORDS } from '../../data/seedPrices.js';
+import { DEFAULT_PRICE_BANDS, INITIAL_COP_BREAKDOWN, VERIFIED_OFFTAKERS } from '../../data/marketCommunityData.js';
 
 /**
  * Advisory lock id. Several lambdas can cold-start at once and each will try to

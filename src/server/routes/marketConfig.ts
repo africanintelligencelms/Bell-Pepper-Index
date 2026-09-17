@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { asyncHandler, notFound } from '../http';
-import { requireAdmin } from '../middleware/adminAuth';
-import { store } from '../store';
-import { parseCopItem, parsePriceBand } from '../validation';
+import { asyncHandler, notFound } from '../http.js';
+import { requireAdmin } from '../middleware/adminAuth.js';
+import { store } from '../store/index.js';
+import { parseCopItem, parsePriceBand } from '../validation.js';
 
 export const marketConfigRouter = Router();
 

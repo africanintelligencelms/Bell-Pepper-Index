@@ -1,5 +1,5 @@
 import { NextFunction, Request, RequestHandler, Response } from 'express';
-import { ValidationError } from './validation';
+import { ValidationError } from './validation.js';
 
 /**
  * Express 4 does not catch rejections from async handlers, so an awaited

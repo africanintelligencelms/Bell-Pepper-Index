@@ -47,6 +47,14 @@ mount it:
   one function and Express does its own routing, so **adding a route needs no platform config
   change**.
 
+**Relative imports under `api/` and `src/server/` must carry an explicit `.js` extension**, and
+a directory must be imported as `<dir>/index.js`. `package.json` sets `"type": "module"`, so the
+compiled function runs as ESM on the serverless host, and Node's ESM resolver does not guess
+extensions or resolve directories. Omitting them builds and typechecks cleanly, serves static
+files cleanly, and then fails at the first invocation with `ERR_MODULE_NOT_FOUND`, which the
+platform surfaces only as `FUNCTION_INVOCATION_FAILED`. Write `.js` even though the file on disk
+is `.ts` — Vite, tsx and esbuild all resolve it back to the TypeScript source.
+
 ### The store seam
 
 Routes never branch on storage. They call `store` (`src/server/store/index.ts`), which

@@ -1,4 +1,4 @@
-import { query } from '../db/client';
+import { query } from '../db/client.js';
 
 export interface RateLimitResult {
   allowed: boolean;

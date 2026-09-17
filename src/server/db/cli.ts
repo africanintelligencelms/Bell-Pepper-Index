@@ -1,6 +1,6 @@
 import 'dotenv/config';
-import { closePool, isDatabaseConfigured } from './client';
-import { migrate } from './migrate';
+import { closePool, isDatabaseConfigured } from './client.js';
+import { migrate } from './migrate.js';
 
 /** `npm run db:migrate` — applies the schema and seeds reference data. */
 async function main() {

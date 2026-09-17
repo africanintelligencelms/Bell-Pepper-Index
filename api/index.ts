@@ -1,6 +1,6 @@
-import { createApiApp } from '../src/server/app';
-import { ensureSchema } from '../src/server/db/migrate';
-import { isDatabaseConfigured } from '../src/server/db/client';
+import { createApiApp } from '../src/server/app.js';
+import { ensureSchema } from '../src/server/db/migrate.js';
+import { isDatabaseConfigured } from '../src/server/db/client.js';
 
 /**
  * Serverless entry for Vercel (and Netlify's Express-compatible functions).

@@ -1,5 +1,5 @@
 import { NextFunction, Request, RequestHandler, Response } from 'express';
-import { store } from '../store';
+import { store } from '../store/index.js';
 
 /**
  * The Gemini endpoints are public and every call costs quota. Without a limit,

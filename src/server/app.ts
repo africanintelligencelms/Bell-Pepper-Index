@@ -1,10 +1,10 @@
 import express, { Express } from 'express';
-import { errorHandler } from './http';
-import { aiRouter } from './routes/ai';
-import { healthRouter } from './routes/health';
-import { marketConfigRouter } from './routes/marketConfig';
-import { offtakersRouter } from './routes/offtakers';
-import { pricesRouter } from './routes/prices';
+import { errorHandler } from './http.js';
+import { aiRouter } from './routes/ai.js';
+import { healthRouter } from './routes/health.js';
+import { marketConfigRouter } from './routes/marketConfig.js';
+import { offtakersRouter } from './routes/offtakers.js';
+import { pricesRouter } from './routes/prices.js';
 
 /**
  * Builds the API with no assumptions about how it is served. The local dev
