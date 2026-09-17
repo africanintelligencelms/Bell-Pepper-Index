@@ -3,6 +3,7 @@ import { OfftakerContact } from '../types';
 import { VERIFIED_OFFTAKERS } from '../data/marketCommunityData';
 import { 
   Users, 
+  ShieldQuestion,
   Phone, 
   MessageCircle, 
   MapPin, 
@@ -17,12 +18,31 @@ import {
 } from 'lucide-react';
 
 interface OfftakerDirectoryProps {
+  /** Buyers persisted server-side. Falls back to the bundled contacts offline. */
+  offtakers?: OfftakerContact[];
+  /** Persists a submission. Resolves to an error message, or null on success. */
+  onAddOfftaker?: (entry: NewOfftakerInput) => Promise<string | null>;
   onSelectBandTab?: () => void;
 }
 
-export const OfftakerDirectory: React.FC<OfftakerDirectoryProps> = () => {
-  const [offtakers, setOfftakers] = useState<OfftakerContact[]>(VERIFIED_OFFTAKERS);
+export interface NewOfftakerInput {
+  name: string;
+  phone: string;
+  location: string;
+  crops: string;
+  notes: string;
+  submittedBy: string;
+}
+
+export const OfftakerDirectory: React.FC<OfftakerDirectoryProps> = ({
+  offtakers: persistedOfftakers,
+  onAddOfftaker,
+}) => {
+  const offtakers =
+    persistedOfftakers && persistedOfftakers.length > 0 ? persistedOfftakers : VERIFIED_OFFTAKERS;
   const [selectedCrop, setSelectedCrop] = useState<string>('all');
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showAddModal, setShowAddModal] = useState(false);
 
@@ -32,6 +52,9 @@ export const OfftakerDirectory: React.FC<OfftakerDirectoryProps> = () => {
   const [newLocation, setNewLocation] = useState('Jos / Abuja');
   const [newCrops, setNewCrops] = useState('Cucumbers, Bell Peppers');
   const [newNotes, setNewNotes] = useState('');
+  const [newSubmittedBy, setNewSubmittedBy] = useState(
+    () => localStorage.getItem('farmer_name') || '',
+  );
 
   const filteredOfftakers = offtakers.filter(off => {
     const matchesSearch = 
@@ -43,22 +66,34 @@ export const OfftakerDirectory: React.FC<OfftakerDirectoryProps> = () => {
     return matchesSearch && off.crops.some(c => c.toLowerCase().includes(selectedCrop.toLowerCase()));
   });
 
-  const handleAddOfftaker = (e: React.FormEvent) => {
+  const handleAddOfftaker = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName || !newPhone) return;
+    if (!newName || !newPhone || isSubmitting) return;
 
-    const newEntry: OfftakerContact = {
-      id: `off-${Date.now()}`,
-      name: newName,
-      phone: newPhone,
-      location: newLocation,
-      crops: newCrops.split(',').map(c => c.trim()),
-      buyerType: 'aggregator',
-      verifiedByCommunity: true,
-      notes: newNotes || 'Added by community member'
-    };
+    setIsSubmitting(true);
+    setSubmitError(null);
 
-    setOfftakers([newEntry, ...offtakers]);
+    // The submission lands unverified — the server ignores any verified flag.
+    // A badge a stranger could grant themselves would be worse than none at
+    // all, since farmers hand perishable harvests to these numbers.
+    const error = onAddOfftaker
+      ? await onAddOfftaker({
+          name: newName,
+          phone: newPhone,
+          location: newLocation,
+          crops: newCrops,
+          notes: newNotes,
+          submittedBy: newSubmittedBy,
+        })
+      : 'Directory is read-only in this view.';
+
+    setIsSubmitting(false);
+
+    if (error) {
+      setSubmitError(error);
+      return;
+    }
+
     setShowAddModal(false);
     setNewName('');
     setNewPhone('');
@@ -80,7 +115,7 @@ export const OfftakerDirectory: React.FC<OfftakerDirectoryProps> = () => {
             </div>
             <div>
               <h3 className="font-extrabold text-base md:text-lg text-slate-900 flex items-center gap-2">
-                <span>Verified Offtaker Directory</span>
+                <span>Offtaker Directory</span>
                 <span className="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded-full font-bold">
                   Community Network
                 </span>
@@ -152,16 +187,31 @@ export const OfftakerDirectory: React.FC<OfftakerDirectoryProps> = () => {
           return (
             <div
               key={off.id}
-              className="bg-slate-50/70 border border-slate-200 rounded-2xl p-4 space-y-3 hover:border-emerald-300 transition"
+              className={`rounded-2xl p-4 space-y-3 transition border ${
+                off.verifiedByCommunity
+                  ? 'bg-slate-50/70 border-slate-200 hover:border-emerald-300'
+                  : 'bg-amber-50/40 border-amber-200 hover:border-amber-300'
+              }`}
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="flex items-center gap-1.5">
                     <span className="font-extrabold text-slate-900 text-sm">{off.name}</span>
-                    {off.verifiedByCommunity && (
+                    {off.verifiedByCommunity ? (
                       <span className="inline-flex items-center gap-0.5 text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded-full font-bold">
                         <CheckCircle className="w-2.5 h-2.5" />
                         <span>Verified</span>
+                      </span>
+                    ) : (
+                      /* An unverified buyer is labelled as such rather than left
+                         blank: absence of a badge reads as an oversight, and a
+                         farmer should know before shipping a harvest. */
+                      <span
+                        className="inline-flex items-center gap-0.5 text-[10px] bg-amber-100 text-amber-900 border border-amber-200 px-1.5 py-0.2 rounded-full font-bold"
+                        title="Submitted by a community member and not yet checked by an admin. Confirm terms before shipping."
+                      >
+                        <ShieldQuestion className="w-2.5 h-2.5" />
+                        <span>Unverified</span>
                       </span>
                     )}
                   </div>
@@ -226,7 +276,7 @@ export const OfftakerDirectory: React.FC<OfftakerDirectoryProps> = () => {
           <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 border border-slate-200 shadow-xl animate-in fade-in">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <h4 className="font-extrabold text-slate-900 text-sm">
-                Share a Verified Offtaker Contact
+                Share an Offtaker Contact
               </h4>
               <button
                 onClick={() => setShowAddModal(false)}
@@ -306,6 +356,33 @@ export const OfftakerDirectory: React.FC<OfftakerDirectoryProps> = () => {
                 />
               </div>
 
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">
+                  Your Name (so the group knows who shared it):
+                </label>
+                <input
+                  type="text"
+                  value={newSubmittedBy}
+                  onChange={e => setNewSubmittedBy(e.target.value)}
+                  placeholder="e.g. Dafom Stephen"
+                  className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              {/* Set expectations before submitting rather than surprising the
+                  member with an "Unverified" tag on the contact they shared. */}
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-[11px] text-amber-950 leading-relaxed">
+                This contact will appear marked <strong>Unverified</strong> until a group
+                administrator confirms the buyer is genuine. Share it anyway — an unverified
+                lead is still a lead.
+              </div>
+
+              {submitError && (
+                <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5 text-[11px] text-rose-900 font-semibold">
+                  {submitError}
+                </div>
+              )}
+
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
                 <button
                   type="button"
@@ -316,9 +393,10 @@ export const OfftakerDirectory: React.FC<OfftakerDirectoryProps> = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 shadow-xs"
+                  disabled={isSubmitting}
+                  className="px-4 py-1.5 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 shadow-xs disabled:opacity-60"
                 >
-                  Add to Directory
+                  {isSubmitting ? 'Sharing…' : 'Add to Directory'}
                 </button>
               </div>
             </form>

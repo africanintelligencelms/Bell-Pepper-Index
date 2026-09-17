@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PriceRecord, WhatsAppParsedEntry, PepperType, TransactionType, ProductionMethod, QualityGrade } from './types';
+import { PriceRecord, WhatsAppParsedEntry, PepperType, TransactionType, ProductionMethod, QualityGrade, UnifiedPriceBand, CostBreakdownItem, OfftakerContact } from './types';
 import { Navbar, ActiveTab } from './components/Navbar';
 import { PriceOverviewHero } from './components/PriceOverviewHero';
 import { MarketIntelligencePanel } from './components/MarketIntelligencePanel';
@@ -10,13 +10,19 @@ import { LogPriceModal } from './components/LogPriceModal';
 import { WhatsAppBroadcastCard } from './components/WhatsAppBroadcastCard';
 import { UnifiedPriceBandCard } from './components/UnifiedPriceBandCard';
 import { ProductionCostCalculator } from './components/ProductionCostCalculator';
-import { OfftakerDirectory } from './components/OfftakerDirectory';
+import { OfftakerDirectory, NewOfftakerInput } from './components/OfftakerDirectory';
 import { SimpleFarmerLogger } from './components/SimpleFarmerLogger';
 import { INITIAL_PRICE_RECORDS } from './data/seedPrices';
+import { adminRequest, getAdminToken, promptForAdminToken } from './lib/adminToken';
 import { CheckCircle, Sprout, Sparkles, PlusCircle, BarChart2, Scale, Calculator, Users, ArrowRight } from 'lucide-react';
 
 export default function App() {
   const [records, setRecords] = useState<PriceRecord[]>(INITIAL_PRICE_RECORDS);
+  // Undefined until the API answers; the child components fall back to the
+  // bundled constants in the meantime so nothing renders empty.
+  const [priceBands, setPriceBands] = useState<UnifiedPriceBand[] | undefined>(undefined);
+  const [copItems, setCopItems] = useState<CostBreakdownItem[] | undefined>(undefined);
+  const [offtakers, setOfftakers] = useState<OfftakerContact[] | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -56,8 +62,38 @@ export default function App() {
     }
   };
 
+  // Price bands and COP defaults are community-agreed figures an admin can
+  // revise without a redeploy, so they are read from the API rather than the
+  // bundled constants.
+  const fetchMarketConfig = async () => {
+    try {
+      const [bandsRes, copRes, offtakerRes] = await Promise.all([
+        fetch('/api/price-bands'),
+        fetch('/api/cop-items'),
+        fetch('/api/offtakers'),
+      ]);
+      const [bandsJson, copJson, offtakerJson] = await Promise.all([
+        bandsRes.json(),
+        copRes.json(),
+        offtakerRes.json(),
+      ]);
+      if (bandsJson.success && Array.isArray(bandsJson.data) && bandsJson.data.length > 0) {
+        setPriceBands(bandsJson.data);
+      }
+      if (copJson.success && Array.isArray(copJson.data) && copJson.data.length > 0) {
+        setCopItems(copJson.data);
+      }
+      if (offtakerJson.success && Array.isArray(offtakerJson.data)) {
+        setOfftakers(offtakerJson.data);
+      }
+    } catch (err) {
+      console.warn('Market config unavailable, using bundled defaults:', err);
+    }
+  };
+
   useEffect(() => {
     fetchPrices();
+    fetchMarketConfig();
   }, []);
 
   // Handle single manual price submission
@@ -92,16 +128,10 @@ export default function App() {
         throw new Error(json.error || 'Failed to submit price');
       }
     } catch (err: any) {
-      // Fallback local update
-      const fallback: PriceRecord = {
-        id: `rec-${Date.now()}`,
-        ...newEntry,
-        date: new Date().toISOString().split('T')[0],
-        source: 'manual_entry',
-        createdAt: new Date().toISOString(),
-      };
-      setRecords(prev => [fallback, ...prev]);
-      showToast(`Logged ₦${newEntry.pricePerKg.toLocaleString()}/kg locally!`);
+      // Never claim a save that did not happen: a farmer who believes their
+      // price is in the index will not re-submit it, and the quote is lost.
+      showToast(`Could not save: ${err.message || 'the server is unreachable'}. Please try again.`);
+      return;
     }
 
     // If in simple mode, stay on simple logger; otherwise switch to live dashboard
@@ -144,39 +174,79 @@ export default function App() {
         throw new Error(json.error || 'Failed to import records');
       }
     } catch (err: any) {
-      showToast(`Imported ${entries.length} records into dashboard!`);
+      showToast(`Import failed: ${err.message || 'the server is unreachable'}. Nothing was saved.`);
+      return;
     }
 
     // Switch to live tab
     setActiveTab('live');
   };
 
-  // Handle delete
-  const handleDeleteRecord = async (id: string) => {
+  // Share a buyer contact. Returns an error message, or null when saved.
+  const handleAddOfftaker = async (entry: NewOfftakerInput): Promise<string | null> => {
     try {
-      await fetch(`/api/prices/${id}`, { method: 'DELETE' });
-    } catch (e) {
-      // ignore
+      const res = await fetch('/api/offtakers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(entry),
+      });
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        return json.error || `Could not share contact (${res.status}).`;
+      }
+
+      // Insert in the server's order rather than prepending: an unverified
+      // submission must not jump ahead of vetted buyers just because it is new.
+      setOfftakers(prev =>
+        [json.data as OfftakerContact, ...(prev ?? [])].sort(
+          (a, b) => Number(b.verifiedByCommunity) - Number(a.verifiedByCommunity),
+        ),
+      );
+      showToast(`Shared ${json.data.name}. It will show as unverified until an admin confirms it.`);
+      return null;
+    } catch (err: any) {
+      return err.message || 'The server is unreachable. Please try again.';
     }
+  };
+
+  // Handle delete (admin only — the server rejects an unauthenticated call)
+  const handleDeleteRecord = async (id: string) => {
+    const result = await adminRequest(`/api/prices/${id}`, { method: 'DELETE' });
+
+    if (!result.ok) {
+      showToast(result.error || 'Delete failed.');
+      return;
+    }
+
+    // Only drop the row once the server has confirmed it, otherwise the table
+    // and the database disagree until the next refresh.
     setRecords(prev => prev.filter(r => r.id !== id));
     showToast('Price record deleted.');
   };
 
-  // Handle dataset reset
+  // Handle dataset reset (admin only — this discards every community submission)
   const handleResetData = async () => {
+    if (!getAdminToken() && !promptForAdminToken()) return;
+
+    const confirmed = window.confirm(
+      'Reset the index to the original seed dataset?\n\nEvery price logged by the community since then will be permanently deleted.',
+    );
+    if (!confirmed) return;
+
     setIsResetting(true);
     try {
-      const res = await fetch('/api/prices/reset', { method: 'POST' });
-      const json = await res.json();
-      if (json.success && json.data) {
-        setRecords(json.data);
+      const result = await adminRequest('/api/prices/reset', { method: 'POST' });
+      if (!result.ok) {
+        showToast(result.error || 'Reset failed.');
+        return;
+      }
+      if (Array.isArray(result.data)) {
+        setRecords(result.data as PriceRecord[]);
       } else {
-        setRecords([...INITIAL_PRICE_RECORDS]);
+        await fetchPrices();
       }
       showToast('Reset to initial WhatsApp group chat dataset.');
-    } catch (err) {
-      setRecords([...INITIAL_PRICE_RECORDS]);
-      showToast('Reset dataset to initial state.');
     } finally {
       setIsResetting(false);
     }
@@ -367,6 +437,7 @@ export default function App() {
         {appMode === 'advanced' && activeTab === 'band' && (
           <div className="space-y-6 animate-in fade-in duration-200">
             <UnifiedPriceBandCard 
+              bands={priceBands}
               onSelectOfftakerTab={() => setActiveTab('offtakers')}
               onSelectCalculatorTab={() => setActiveTab('calculator')}
             />
@@ -378,6 +449,7 @@ export default function App() {
         {appMode === 'advanced' && activeTab === 'calculator' && (
           <div className="space-y-6 animate-in fade-in duration-200">
             <ProductionCostCalculator
+              costItems={copItems}
               onGoToOfftakers={() => setActiveTab('offtakers')}
               onGoToUnifiedBand={() => setActiveTab('band')}
             />
@@ -387,7 +459,11 @@ export default function App() {
         {/* Tab 4: Verified Offtaker Directory */}
         {appMode === 'advanced' && activeTab === 'offtakers' && (
           <div className="space-y-6 animate-in fade-in duration-200">
-            <OfftakerDirectory onSelectBandTab={() => setActiveTab('band')} />
+            <OfftakerDirectory
+              offtakers={offtakers}
+              onAddOfftaker={handleAddOfftaker}
+              onSelectBandTab={() => setActiveTab('band')}
+            />
           </div>
         )}
 

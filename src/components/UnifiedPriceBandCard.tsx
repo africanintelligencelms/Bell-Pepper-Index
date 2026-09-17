@@ -17,16 +17,21 @@ import {
 } from 'lucide-react';
 
 interface UnifiedPriceBandCardProps {
+  /** Bands persisted server-side. Falls back to the bundled defaults offline. */
+  bands?: UnifiedPriceBand[];
   onSelectOfftakerTab?: () => void;
   onSelectCalculatorTab?: () => void;
 }
 
 export const UnifiedPriceBandCard: React.FC<UnifiedPriceBandCardProps> = ({
+  bands: persistedBands,
   onSelectOfftakerTab,
   onSelectCalculatorTab
 }) => {
-  const [bands] = useState<UnifiedPriceBand[]>(DEFAULT_PRICE_BANDS);
-  const [selectedHubIndex, setSelectedHubIndex] = useState(0);
+  const bands = persistedBands && persistedBands.length > 0 ? persistedBands : DEFAULT_PRICE_BANDS;
+  const [rawHubIndex, setSelectedHubIndex] = useState(0);
+  // A hub removed by an admin would otherwise leave this index dangling.
+  const selectedHubIndex = Math.min(rawHubIndex, bands.length - 1);
   const [testVariety, setTestVariety] = useState<'coloured' | 'green'>('green');
   const [testOffer, setTestOffer] = useState<number | ''>(4000);
   const [copied, setCopied] = useState(false);
