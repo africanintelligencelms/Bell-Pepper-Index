@@ -18,7 +18,8 @@ buyer just offered is fair.
 | `npm run build:client` | SPA only — what Vercel runs. |
 | `npm run start` | Runs the bundled self-hosted server. |
 | `npm run db:migrate` | Applies the schema and seeds reference data. |
-| `npm run lint` | `tsc --noEmit`. This is the only check in the repo — there is no test suite yet. |
+| `npm run check:secrets` | Fails if a secret reached `dist/`. Runs automatically as part of both builds. |
+| `npm run lint` | `tsc --noEmit`. There is no test suite yet. |
 
 ## Architecture
 
@@ -158,6 +159,25 @@ client-spoofable `x-forwarded-for`.
 - Scope production and preview to **different keys**. Preview deployments are reachable by
   anyone with the URL, so a preview key should be separately revocable and quota-capped.
 
+`scripts/check-bundle-secrets.mjs` enforces the above rather than leaving it to convention. It
+runs inside `build` and `build:client`, so a leak fails the deploy instead of shipping. It
+applies two independent checks to the client output:
+
+1. **Known secret shapes** — Google API keys, Postgres URLs carrying a password, PEM blocks,
+   and any surviving `VITE_*(KEY|TOKEN|SECRET|PASSWORD)` name.
+2. **Literal values of sensitive env vars present at build time** (`GEMINI_API_KEY`,
+   `ADMIN_TOKEN`, `DATABASE_URL`, `PGPASSWORD`). This is the stronger check: it catches a
+   secret of any shape under any variable name, and it works on Vercel, where project
+   environment variables are available to the build.
+
+`dist/server.cjs` is excluded — it legitimately references `process.env.GEMINI_API_KEY` and is
+never served to a browser. Failure output names the file and the variable but **never prints
+the value**, since it lands in CI logs.
+
+Both paths are verified to actually fire: a deliberate `VITE_` alias of the key failed the
+build on both checks, and a random 16-character `ADMIN_TOKEN` under a harmless variable name
+was caught by the env-value check alone.
+
 ## Conventions
 
 - **Validate at the boundary, in `src/server/validation.ts`.** Never coerce with
@@ -211,9 +231,5 @@ without the first the app is non-persistent, without the second all admin action
   Deferred to a future release; the design is sketched in a `TODO(next release)` block above the
   route in `src/server/routes/ai.ts`. Rate limiting caps the damage in the meantime but does not
   remove the redundant calls.
-- **No build-time secret scan.** Nothing currently fails the build if a secret reaches
-  `dist/`. The `VITE_` rule above is enforced by convention only.
-- **`.vercel/` is not gitignored.** It holds project linkage rather than credentials, but it
-  should not be committed.
 - **`GEMINI_MODEL` defaults to `gemini-3.6-flash`**, carried over from the original code and
   not independently verified here. Override it with the env var if that id is wrong.
