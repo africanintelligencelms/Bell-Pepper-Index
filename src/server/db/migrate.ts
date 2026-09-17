@@ -7,6 +7,15 @@ import { DEFAULT_PRICE_BANDS, INITIAL_COP_BREAKDOWN, VERIFIED_OFFTAKERS } from '
 /**
  * Advisory lock id. Several lambdas can cold-start at once and each will try to
  * apply the schema; the lock makes them queue instead of racing on CREATE TABLE.
+ *
+ * It is taken with pg_advisory_xact_lock INSIDE the transaction, not the
+ * session-scoped pg_advisory_lock outside it. Production pooled endpoints
+ * (Supabase's Supavisor on port 6543, PgBouncer in transaction mode) hand each
+ * statement outside a transaction to any backend, so a session lock could be
+ * held on one backend while the schema work ran unprotected on another — and
+ * the unlock would land on a third, leaking the lock. A transaction-scoped lock
+ * is pinned to the transaction's backend and released automatically on COMMIT
+ * or ROLLBACK.
  */
 const MIGRATION_LOCK_ID = 8_274_119;
 
@@ -131,8 +140,8 @@ async function seedOfftakers(client: PoolClient): Promise<void> {
 export async function migrate(): Promise<void> {
   const client = await getPool().connect();
   try {
-    await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_ID]);
     await client.query('BEGIN');
+    await client.query('SELECT pg_advisory_xact_lock($1)', [MIGRATION_LOCK_ID]);
     await applySchema(client);
     const seeded = await seedPriceRecords(client);
     await seedPriceBands(client);
@@ -148,7 +157,7 @@ export async function migrate(): Promise<void> {
     await client.query('ROLLBACK').catch(() => undefined);
     throw err;
   } finally {
-    await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_ID]).catch(() => undefined);
+    // No explicit unlock: COMMIT and ROLLBACK both release a transaction lock.
     client.release();
   }
 }

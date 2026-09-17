@@ -10,18 +10,37 @@ request to `api/index.ts`, which mounts the same Express app the local dev serve
 store, and on serverless that memory lasts roughly one request — every price a farmer logs would
 be accepted, acknowledged, and lost. `/api/health` would report `"persistent": false`.
 
-Either provider works:
+### Supabase
 
-| | Connection string to copy |
-| --- | --- |
-| **Neon** | The **Pooled connection** string — host contains `-pooler` |
-| **Supabase** | Settings → Database → **Connection pooling**, port `6543` |
+1. Create a project at [supabase.com](https://supabase.com) (free tier is fine) and set a
+   database password when prompted — you will need it in the connection string.
+2. **Settings → Database → Connection pooling.**
+3. Copy the **Transaction** pooler URI. It uses **port 6543** and a host like
+   `aws-0-<region>.pooler.supabase.com`.
 
-Use the *pooled* endpoint. Serverless functions open many short-lived connections and will
-exhaust a direct endpoint's limit under any real load.
+Do **not** use the direct connection string shown at the top of that page (port 5432). It is
+the first thing offered and the usual mistake. Serverless functions open many short-lived
+connections and will exhaust a direct endpoint's limit under any real load.
+
+Substitute your database password for `[YOUR-PASSWORD]` in the copied URI. If the password
+contains `@`, `/`, `:` or `#`, percent-encode it or the URI will parse wrongly.
+
+Neon works identically — take its **Pooled connection** string, whose host contains `-pooler`.
+
+### Why transaction pooling is safe here
+
+Supabase's pooler (and PgBouncer in transaction mode) hands each statement outside a
+transaction to any available backend. Code that assumes one session across several statements
+breaks subtly there. Two things in this app were written for it:
+
+- The migration takes `pg_advisory_xact_lock` **inside** its transaction, not the
+  session-scoped `pg_advisory_lock` outside it. A transaction is pinned to one backend, so the
+  lock actually protects the schema work and is released automatically on COMMIT or ROLLBACK.
+- `pg` is used without named prepared statements, which transaction pooling does not support.
 
 No migration step is needed: the app applies its schema and seeds reference data on first
-request, guarded by an advisory lock so simultaneous cold starts queue instead of racing.
+request. Verified by running six concurrent migrations against an empty database — one seeded,
+five found the schema already applied, no duplicate rows and no leaked locks.
 
 ## 2. Generate an admin token
 

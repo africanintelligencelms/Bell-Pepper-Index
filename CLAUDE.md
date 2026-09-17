@@ -70,8 +70,12 @@ quietly discarding submissions.
   Point `DATABASE_URL` at a **pooled** endpoint in production (Neon's `-pooler` host, or
   Supabase port 6543).
 - **Migrations are idempotent and self-applying.** `ensureSchema()` memoises its promise per
-  process and takes a Postgres advisory lock, so simultaneous cold starts queue rather than
-  race on `CREATE TABLE`.
+  process and takes `pg_advisory_xact_lock` **inside** the migration transaction, so
+  simultaneous cold starts queue rather than race on `CREATE TABLE`. It must stay a
+  transaction-scoped lock: production pooled endpoints (Supabase's Supavisor on 6543, PgBouncer
+  in transaction mode) route each statement outside a transaction to any backend, so a session
+  lock would guard nothing and its unlock would leak. Do not use named prepared statements
+  either — transaction pooling does not support them.
 
 ### Seeding rules (these encode a product decision)
 
