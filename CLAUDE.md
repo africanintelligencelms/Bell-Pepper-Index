@@ -218,6 +218,17 @@ was caught by the env-value check alone.
 - **Hubs** — Jos farmgate (the production belt) plus Abuja, Lagos, Kano. Logistics from Jos is
   ₦200–₦500/kg and is why the same pepper has four different fair prices.
 
+## Deployment
+
+See `DEPLOYMENT.md`. `vercel.json` sets `buildCommand` to `npm run build:client` rather than
+`vite build` specifically so the secret scan runs on Vercel — the one environment where a leaked
+bundle is actually published.
+
+The single most important pre-deploy step is provisioning Postgres. Without `DATABASE_URL` the
+app falls back to the in-memory store, which on serverless lasts about one request: every
+submission is accepted, acknowledged, and lost. `/api/health` reports `"store"` and
+`"persistent"` precisely so this is checkable in one curl.
+
 ## Environment
 
 See `.env.example`. `DATABASE_URL` and `ADMIN_TOKEN` are the two that change behaviour most:
