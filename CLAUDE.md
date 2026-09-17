@@ -1,0 +1,165 @@
+# Naija Greenhouse Pepper Index
+
+A community-driven price index for Nigerian greenhouse bell pepper farmers. Farmers log what
+they sold or were offered; the app turns those submissions into a live index, an AI-extracted
+feed from WhatsApp group chats, a cost-of-production breakeven matrix, and an agreed price
+band the community can quote back at buyers.
+
+The app exists to stop undercutting. Most of the domain logic is in service of one thing:
+a farmer holding a perishable harvest should be able to see, in seconds, whether the price a
+buyer just offered is fair.
+
+## Commands
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Vite + Express on one port (3000 by default; `PORT` overrides). |
+| `npm run build` | Builds the SPA to `dist/` and bundles the self-hosted server to `dist/server.cjs`. |
+| `npm run build:client` | SPA only — what Vercel runs. |
+| `npm run start` | Runs the bundled self-hosted server. |
+| `npm run db:migrate` | Applies the schema and seeds reference data. |
+| `npm run lint` | `tsc --noEmit`. This is the only check in the repo — there is no test suite yet. |
+
+## Architecture
+
+```
+index.html ──> src/main.tsx ──> src/App.tsx        SPA (React 19, Tailwind 4, lucide icons)
+                                     │
+                                     │ fetch('/api/...')
+                                     ▼
+api/index.ts ───────┐
+                    ├──> src/server/app.ts         Express app factory (no listen, no Vite)
+server.ts ──────────┘         │
+  (local dev only)            ├──> routes/         prices, marketConfig, ai, health
+                              ├──> store/          picks Postgres or in-memory
+                              ├──> repositories/   SQL, snake_case <-> camelCase mapping
+                              └──> db/             pool, schema, migrate
+```
+
+`src/server/app.ts` builds the API and knows nothing about how it is served. Two entry points
+mount it:
+
+- **`server.ts`** — local development and self-hosting. Adds Vite middleware (dev) or static
+  file serving (production), and awaits the migration at boot so a broken database fails
+  loudly instead of on the first farmer's submission.
+- **`api/index.ts`** — Vercel/Netlify. `vercel.json` rewrites every `/api/*` request to this
+  one function and Express does its own routing, so **adding a route needs no platform config
+  change**.
+
+### The store seam
+
+Routes never branch on storage. They call `store` (`src/server/store/index.ts`), which
+dispatches to Postgres when `DATABASE_URL` is set and to an in-memory store when it is not.
+The in-memory store exists so a contributor can clone and run without provisioning a database
+— it is **not** a production mode, and `/api/health` reports `"store": "memory"` and
+`"persistent": false` so a deploy that silently lost its `DATABASE_URL` is obvious rather than
+quietly discarding submissions.
+
+### Persistence notes
+
+- **Numerics come back as strings.** Postgres returns `NUMERIC` as a string to preserve
+  precision. Every repository maps them with `Number(...)` explicitly. If you add a numeric
+  column, map it — an unmapped one will silently concatenate instead of adding.
+- **Dates are strings, deliberately.** `src/server/db/client.ts` overrides the `DATE` type
+  parser (OID 1082) to return the raw `YYYY-MM-DD`. The default parser builds a JS `Date` at
+  local midnight, which shifts a Jos harvest date to the previous day once the server runs in
+  UTC. Do not remove this.
+- **The pool is cached on `globalThis`** and kept small (`PG_POOL_MAX`, default 3). Many
+  concurrent lambdas each holding a large pool will exhaust the database's connection limit.
+  Point `DATABASE_URL` at a **pooled** endpoint in production (Neon's `-pooler` host, or
+  Supabase port 6543).
+- **Migrations are idempotent and self-applying.** `ensureSchema()` memoises its promise per
+  process and takes a Postgres advisory lock, so simultaneous cold starts queue rather than
+  race on `CREATE TABLE`.
+
+### Seeding rules (these encode a product decision)
+
+- **Price records** seed only into a genuinely empty table. Re-seeding a live index would
+  resurrect records an admin deleted on purpose.
+- **Price bands and COP items** seed per row with `ON CONFLICT DO NOTHING`. A later release can
+  add a new hub without overwriting figures the association has already tuned.
+- **`POST /api/prices/reset`** truncates and re-seeds *price records only*. Band and COP edits
+  survive it.
+
+## API
+
+Reads are public. Writes that a farmer performs are public. Destructive and
+configuration-changing writes require the `x-admin-token` header.
+
+| Method | Path | Auth |
+| --- | --- | --- |
+| `GET` | `/api/health` | public |
+| `GET` | `/api/prices` | public — `?limit=` (max 2000) `&offset=` |
+| `POST` | `/api/prices` | public — any farmer may contribute |
+| `POST` | `/api/prices/bulk` | public — WhatsApp import, max 500 per request |
+| `DELETE` | `/api/prices/:id` | **admin** |
+| `POST` | `/api/prices/reset` | **admin** |
+| `GET` | `/api/price-bands`, `/api/cop-items` | public |
+| `PUT` | `/api/price-bands`, `/api/cop-items` | **admin** (upsert) |
+| `DELETE` | `/api/price-bands/:hub`, `/api/cop-items/:id` | **admin** |
+| `POST` | `/api/parse-whatsapp` | public — Gemini extraction |
+| `POST` | `/api/predict-price` | public — Gemini, with deterministic fallback |
+
+`requireAdmin` **fails closed**: with `ADMIN_TOKEN` unset it returns 503 rather than allowing
+everything. The token is compared with `timingSafeEqual`.
+
+The admin token is never bundled into the client — the build is public, so a compiled-in token
+would be a token published to every farmer. `src/lib/adminToken.ts` keeps it in the admin's own
+`localStorage` and prompts on first use, clearing it if the server rejects it.
+
+## Conventions
+
+- **Validate at the boundary, in `src/server/validation.ts`.** Never coerce with
+  `Number(x) || 0` in a route — that silently turns a malformed price into ₦0 and drags the
+  community average down. `pricePerKg` is the one field with no default: a record without a
+  real price is not a record.
+- **Never report a write that did not happen.** `App.tsx` used to fall back to a local-only
+  "Logged!" toast when the API failed. A farmer who believes their price is in the index will
+  not re-submit it, and the quote is lost. Failures now say so.
+- **Optimistic UI must be confirmed.** Delete removes the row only after the server agrees,
+  otherwise the table and database disagree until the next refresh.
+- **Gemini keys are server-side only** (`metadata.json` declares
+  `MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API`). Parsing and prediction stay behind the API.
+- **`/api/predict-price` always answers.** If Gemini is unavailable — unset key, quota, bad
+  JSON — it serves a deterministic analysis computed from stored records, and reports
+  `source: "fallback"`. A farmer mid-negotiation should never see a blank panel.
+- **Persisted config flows down as optional props.** `UnifiedPriceBandCard` takes `bands`,
+  `ProductionCostCalculator` takes `costItems`; both fall back to the bundled constants in
+  `src/data/marketCommunityData.ts` when the API has not answered yet or is offline.
+- Comments explain *why*, especially where the reason is a market dynamic rather than a
+  technical one. Match the surrounding density.
+
+## Domain vocabulary
+
+- **Coloured vs green** — red/yellow/orange peppers command a large premium (≈₦7,000/kg)
+  over green (≈₦4,500/kg). They are effectively two different markets.
+- **Greenhouse vs open field** — greenhouse produce has thicker pericarps and 14–21 day shelf
+  life versus a few days. That shelf life is *holding leverage*: it is why a farmer can refuse
+  a low offer instead of panic selling.
+- **The offtaker fallacy** — buyers quoting open-field glut rates (₦3,000) for greenhouse
+  produce to force a distress sale. Much of the app's copy exists to name this tactic.
+- **Unified (+/-) band** — the association's agreed min/target/max per hub. The point is that
+  farmers stop negotiating in silos.
+- **COP** — cost of production per kg. The hard case the calculator models: COP is ₦6,000 but
+  the offer is ₦4,000, so is marginal cash recovery better than a total rot write-off?
+- **Transaction types** — `actual_sale` (confirmed), `buyer_offer` (what a buyer offered),
+  `farmer_asking` (what a farmer wants). Mixing these distorts the index.
+- **Hubs** — Jos farmgate (the production belt) plus Abuja, Lagos, Kano. Logistics from Jos is
+  ₦200–₦500/kg and is why the same pepper has four different fair prices.
+
+## Environment
+
+See `.env.example`. `DATABASE_URL` and `ADMIN_TOKEN` are the two that change behaviour most:
+without the first the app is non-persistent, without the second all admin actions return 503.
+
+## Known gaps
+
+- **No test suite.** `npm run lint` is typecheck only. Verification so far has been manual
+  against a real Postgres.
+- **The offtaker directory is still hardcoded** in `src/data/marketCommunityData.ts` and
+  additions live only in component state — they are lost on refresh. It was deliberately left
+  out of the first persistence pass.
+- **`/api/predict-price` calls Gemini on every records-count change**, with no caching. This is
+  the obvious next cost optimisation.
+- **`GEMINI_MODEL` defaults to `gemini-3.6-flash`**, carried over from the original code and
+  not independently verified here. Override it with the env var if that id is wrong.

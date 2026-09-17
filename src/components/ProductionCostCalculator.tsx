@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { INITIAL_COP_BREAKDOWN } from '../data/marketCommunityData';
 import { CostBreakdownItem } from '../types';
 import { 
@@ -20,18 +20,32 @@ import {
 } from 'lucide-react';
 
 interface ProductionCostCalculatorProps {
+  /** COP defaults persisted server-side. Falls back to the bundled figures offline. */
+  costItems?: CostBreakdownItem[];
   onGoToOfftakers?: () => void;
   onGoToUnifiedBand?: () => void;
 }
 
 export const ProductionCostCalculator: React.FC<ProductionCostCalculatorProps> = ({
+  costItems: persistedCostItems,
   onGoToOfftakers,
   onGoToUnifiedBand
 }) => {
   // Production inputs
   const [plantCount, setPlantCount] = useState<number>(500); // standard 8x24m / 10x30m greenhouse
   const [avgYieldPerPlantKg, setAvgYieldPerPlantKg] = useState<number>(4.0); // 4kg per plant lifetime
-  const [costItems, setCostItems] = useState<CostBreakdownItem[]>(INITIAL_COP_BREAKDOWN);
+  const [costItems, setCostItems] = useState<CostBreakdownItem[]>(
+    persistedCostItems ?? INITIAL_COP_BREAKDOWN,
+  );
+
+  // The server figures usually arrive after this component first renders, so
+  // adopt them when they land. Local edits the farmer makes afterwards stay put
+  // because the effect only reruns when the persisted list itself changes.
+  useEffect(() => {
+    if (persistedCostItems && persistedCostItems.length > 0) {
+      setCostItems(persistedCostItems);
+    }
+  }, [persistedCostItems]);
 
   // Dilemma scenario inputs
   const [marketOfferPrice, setMarketOfferPrice] = useState<number>(4000);
