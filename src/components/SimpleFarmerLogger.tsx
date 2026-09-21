@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PepperType, PriceRecord } from '../types';
+import { MarketRate, MarketRateResponse, PepperType, PriceRecord } from '../types';
 import { 
   Check, 
   MapPin, 
@@ -17,6 +17,8 @@ import {
 
 interface SimpleFarmerLoggerProps {
   records: PriceRecord[];
+  /** Server-computed going rate. Undefined until the API answers. */
+  marketRate?: MarketRateResponse;
   onAddPrice: (entry: {
     type: PepperType;
     pricePerKg: number;
@@ -43,6 +45,7 @@ const COMMON_LOCATIONS = [
 
 export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
   records,
+  marketRate,
   onAddPrice,
   onOpenOfftakers,
   onOpenAdvanced,
@@ -60,11 +63,10 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
   const [justSubmitted, setJustSubmitted] = useState(false);
   const [submittedPrice, setSubmittedPrice] = useState<number>(0);
 
-  // Compute live community averages
-  const greenPrices = records.filter(r => r.type === 'green').map(r => r.pricePerKg);
-  const colouredPrices = records.filter(r => r.type === 'coloured').map(r => r.pricePerKg);
-  const avgGreen = greenPrices.length ? Math.round(greenPrices.reduce((a, b) => a + b, 0) / greenPrices.length) : 4500;
-  const avgColoured = colouredPrices.length ? Math.round(colouredPrices.reduce((a, b) => a + b, 0) / colouredPrices.length) : 7000;
+  // The rate is not computed here. It used to be a plain mean of every record
+  // ever logged, which blended open-field produce and buyers' offers into a
+  // figure farmers quoted as the greenhouse rate. /api/market-rate now owns
+  // the rule; this component only renders what it returns.
 
   // When variety changes, suggest realistic starter price
   const handleSelectVariety = (v: PepperType) => {
@@ -108,6 +110,45 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
     setJustSubmitted(true);
     setTimeout(() => setJustSubmitted(false), 5000);
   };
+
+
+  /** Renders one variety's rate, including how much data stands behind it. */
+  const RateCard: React.FC<{ rate?: MarketRate; label: string; accent: string }> = ({
+    rate,
+    label,
+    accent,
+  }) => (
+    <div className="bg-slate-800/80 rounded-2xl p-3.5 border border-slate-700">
+      <span className="text-xs text-slate-400 block mb-0.5">{label}</span>
+      <div className="flex items-baseline gap-1">
+        <span className={`text-xl font-black ${accent}`}>
+          {rate ? `₦${rate.pricePerKg.toLocaleString()}` : '—'}
+        </span>
+        <span className="text-xs text-slate-400">/kg</span>
+      </div>
+
+      {rate?.band && (
+        <span className="text-[10px] text-slate-400 mt-1 block">
+          Agreed range: ₦{rate.band.min.toLocaleString()} - ₦{rate.band.max.toLocaleString()}
+        </span>
+      )}
+
+      {/* A figure built on two sales must not look like one built on twenty. */}
+      {rate && !rate.sufficient && (
+        <span className="text-[10px] text-amber-300 mt-1 block font-semibold">
+          Association target — not enough recent sales
+        </span>
+      )}
+
+      {/* The community rate sitting under the agreed floor is the single most
+          important thing a farmer can know before answering a buyer. */}
+      {rate?.sufficient && rate.withinBand === false && rate.band && rate.pricePerKg < rate.band.min && (
+        <span className="text-[10px] text-rose-300 mt-1 block font-semibold">
+          Below the agreed floor of ₦{rate.band.min.toLocaleString()}
+        </span>
+      )}
+    </div>
+  );
 
   const colouredPriceOptions = [6000, 6500, 7000, 7500, 8000];
   const greenPriceOptions = [3500, 4000, 4500, 5000, 5500];
@@ -191,7 +232,10 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
                 2. Price per kg (in Naira):
               </label>
               <span className="text-xs text-emerald-700 font-bold">
-                Today's Avg: ₦{(variety === 'coloured' ? avgColoured : avgGreen).toLocaleString()}/kg
+                {(() => {
+                  const r = variety === 'coloured' ? marketRate?.coloured : marketRate?.green;
+                  return r ? `Going rate: ₦${r.pricePerKg.toLocaleString()}/kg` : 'Loading rate…';
+                })()}
               </span>
             </div>
 
@@ -367,32 +411,17 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
             <span className="font-bold text-sm text-white">Today's Going Rates</span>
           </div>
           <span className="text-xs text-slate-400">
-            Based on {records.length} recent farmer sales
+            {marketRate
+              ? marketRate.green.sufficient || marketRate.coloured.sufficient
+                ? `Median of greenhouse sales, last ${Math.max(marketRate.green.windowDays, marketRate.coloured.windowDays)} days`
+                : 'Association agreed rates'
+              : 'Loading live rates…'}
           </span>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <div className="bg-slate-800/80 rounded-2xl p-3.5 border border-slate-700">
-            <span className="text-xs text-slate-400 block mb-0.5">🫑 Green Pepper</span>
-            <div className="flex items-baseline gap-1">
-              <span className="text-xl font-black text-emerald-400">
-                ₦{avgGreen.toLocaleString()}
-              </span>
-              <span className="text-xs text-slate-400">/kg</span>
-            </div>
-            <span className="text-[10px] text-slate-400 mt-1 block">Fair Range: ₦4,000 - ₦5,000</span>
-          </div>
-
-          <div className="bg-slate-800/80 rounded-2xl p-3.5 border border-slate-700">
-            <span className="text-xs text-slate-400 block mb-0.5">🌶️ Coloured Pepper</span>
-            <div className="flex items-baseline gap-1">
-              <span className="text-xl font-black text-amber-400">
-                ₦{avgColoured.toLocaleString()}
-              </span>
-              <span className="text-xs text-slate-400">/kg</span>
-            </div>
-            <span className="text-[10px] text-slate-400 mt-1 block">Fair Range: ₦6,500 - ₦7,500</span>
-          </div>
+          <RateCard rate={marketRate?.green} label="🫑 Green Pepper" accent="text-emerald-400" />
+          <RateCard rate={marketRate?.coloured} label="🌶️ Coloured Pepper" accent="text-amber-400" />
         </div>
 
         {/* Share to WhatsApp Quick Action */}

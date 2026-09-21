@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PriceRecord } from '../types';
+import { MarketRate, MarketRateResponse, PriceRecord } from '../types';
 import { 
   X, 
   Copy, 
@@ -14,32 +14,38 @@ interface WhatsAppBroadcastCardProps {
   isOpen: boolean;
   onClose: () => void;
   records: PriceRecord[];
+  /** Same server-computed rate the app shows, so the two cannot disagree. */
+  marketRate?: MarketRateResponse;
 }
 
 export const WhatsAppBroadcastCard: React.FC<WhatsAppBroadcastCardProps> = ({
   isOpen,
   onClose,
-  records
+  records,
+  marketRate
 }) => {
   const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
 
-  // Compute live averages
-  const coloured = records.filter(r => r.type === 'coloured').map(r => r.pricePerKg);
-  const green = records.filter(r => r.type === 'green').map(r => r.pricePerKg);
+  // This message is the app's most public artefact — it gets pasted into the
+  // group and quoted at buyers. It must carry exactly the figure the app shows,
+  // computed by the same server rule, never a second average derived here.
+  const green = marketRate?.green;
+  const coloured = marketRate?.coloured;
 
-  const avgColoured = coloured.length
-    ? Math.round(coloured.reduce((a, b) => a + b, 0) / coloured.length)
-    : 7000;
-  const minColoured = coloured.length ? Math.min(...coloured) : 6500;
-  const maxColoured = coloured.length ? Math.max(...coloured) : 8000;
+  /** Describes what stands behind a figure, so the group can judge it. */
+  const provenance = (rate?: MarketRate) => {
+    if (!rate) return 'rate unavailable';
+    if (!rate.sufficient) return `association target — only ${rate.sampleSize} recent sale(s) logged`;
+    const sales = rate.sampleSize === 1 ? 'sale' : 'sales';
+    return `median of ${rate.sampleSize} greenhouse ${sales}, last ${rate.windowDays} days`;
+  };
 
-  const avgGreen = green.length
-    ? Math.round(green.reduce((a, b) => a + b, 0) / green.length)
-    : 4300;
-  const minGreen = green.length ? Math.min(...green) : 3000;
-  const maxGreen = green.length ? Math.max(...green) : 5000;
+  const spread = (rate?: MarketRate) =>
+    rate && rate.low !== null && rate.high !== null
+      ? `₦${rate.low.toLocaleString()} - ₦${rate.high.toLocaleString()} / kg`
+      : 'not enough recent sales to show a range';
 
   const todayStr = new Date().toLocaleDateString('en-NG', {
     weekday: 'short',
@@ -54,14 +60,16 @@ export const WhatsAppBroadcastCard: React.FC<WhatsAppBroadcastCardProps> = ({
 📅 *Date:* ${todayStr}
 
 🫑 *COLOURED BELL PEPPERS (Red/Yellow):*
-• *Live Average:* ₦${avgColoured.toLocaleString()} / kg
-• *Market Range:* ₦${minColoured.toLocaleString()} - ₦${maxColoured.toLocaleString()} / kg
-• *Recommended Target:* ₦7,000 / kg
+• *Going Rate:* ₦${coloured ? coloured.pricePerKg.toLocaleString() : '—'} / kg
+• *Based on:* ${provenance(coloured)}
+• *Most Sales Fell Between:* ${spread(coloured)}${coloured?.band ? `
+• *Agreed Range:* ₦${coloured.band.min.toLocaleString()} - ₦${coloured.band.max.toLocaleString()} / kg` : ''}
 
 🫑 *GREEN BELL PEPPERS:*
-• *Live Average:* ₦${avgGreen.toLocaleString()} / kg
-• *Market Range:* ₦${minGreen.toLocaleString()} - ₦${maxGreen.toLocaleString()} / kg
-• *Greenhouse Rec. Floor:* ₦4,500 / kg
+• *Going Rate:* ₦${green ? green.pricePerKg.toLocaleString() : '—'} / kg
+• *Based on:* ${provenance(green)}
+• *Most Sales Fell Between:* ${spread(green)}${green?.band ? `
+• *Agreed Floor:* ₦${green.band.min.toLocaleString()} / kg` : ''}
 
 ⚠️ *BUYER DEFENSE ADVICE:*
 Don't sell greenhouse green peppers at rain-fed open-field rates (₦3,000)! Greenhouse quality has double shelf life & firm walls.
@@ -69,6 +77,7 @@ Don't sell greenhouse green peppers at rain-fed open-field rates (₦3,000)! Gre
 👉 *Log sale or paste chat:*
 ${appUrl}
 
+_Greenhouse sales only. Buyer offers and open-field prices are excluded._
 _Powered by Greenhouse Farmers Community Network_`;
 
   const handleCopy = () => {

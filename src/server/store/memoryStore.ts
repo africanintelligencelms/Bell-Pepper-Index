@@ -120,4 +120,16 @@ export const memoryStore = {
       limit,
     };
   },
+
+  async listRateSamples(type: string, sinceDate: string) {
+    return priceRecords
+      .filter(
+        (r) =>
+          r.type === type &&
+          r.productionMethod === 'greenhouse' &&
+          r.transactionType === 'actual_sale' &&
+          r.date >= sinceDate,
+      )
+      .map((r) => ({ pricePerKg: r.pricePerKg, date: r.date }));
+  },
 };

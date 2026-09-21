@@ -12,7 +12,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
-    "check:secrets": "node scripts/check-bundle-secrets.mjs"
+    "check:secrets": "node scripts/check-bundle-secrets.mjs",
+    "test": "tsx scripts/test-market-rate.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
