@@ -1,10 +1,25 @@
 import { Router } from 'express';
 import { asyncHandler, notFound } from '../http.js';
-import { requireAdmin } from '../middleware/adminAuth.js';
+import { hasValidAdminToken, requireAdmin } from '../middleware/adminAuth.js';
 import { store } from '../store/index.js';
 import { parsePriceRecord, parsePriceRecordBatch } from '../validation.js';
+import { PriceRecord } from '../../types.js';
 
 export const pricesRouter = Router();
+
+/**
+ * Farmers give a phone number so the group can follow up on a quote, not so it
+ * can be published. `/api/prices` is public and unauthenticated, so returning
+ * the number would hand every contributor's contact details to anyone who
+ * calls the endpoint — including scrapers. Admins still see it, because
+ * verifying a suspicious submission means being able to ring the person.
+ *
+ * The number is still stored; it is only withheld from public reads.
+ */
+function forAudience(records: PriceRecord[], isAdmin: boolean): PriceRecord[] {
+  if (isAdmin) return records;
+  return records.map(({ farmerPhone, ...rest }) => rest);
+}
 
 pricesRouter.get(
   '/prices',
@@ -17,7 +32,12 @@ pricesRouter.get(
       Number.isFinite(offset) ? offset : undefined,
     );
 
-    res.json({ success: true, data, count: data.length, persistent: store.isPersistent() });
+    res.json({
+      success: true,
+      data: forAudience(data, hasValidAdminToken(req)),
+      count: data.length,
+      persistent: store.isPersistent(),
+    });
   }),
 );
 

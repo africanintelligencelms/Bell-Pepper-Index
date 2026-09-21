@@ -78,6 +78,14 @@ Every part of that rule is load-bearing:
 - **A minimum sample.** Below three sales the median is noise, and a farmer will quote it to a
   buyer. It says so instead.
 
+**The logger must ask, never assume.** `SimpleFarmerLogger` used to hardcode
+`transactionType: 'actual_sale'` and `productionMethod: 'greenhouse'` on every submission, so a
+buyer's lowball offer was stored as a confirmed greenhouse sale and counted towards the rate
+farmers quote back at that same buyer. Both are now explicit questions. Transaction type has
+**no default** on purpose: a pre-selected "I sold it" that is almost always accepted is the same
+as a hardcoded value. Growing method defaults to greenhouse, which is honest for a greenhouse
+farmers' network, but is visible and one tap to change.
+
 **Compute the rate in exactly one place.** `SimpleFarmerLogger` and `WhatsAppBroadcastCard` both
 render this endpoint's response. The broadcast is the app's most public artefact — it gets pasted
 into the group — so it must never derive its own average. `PriceOverviewHero`, `PriceTrendChart`
@@ -144,6 +152,16 @@ configuration-changing writes require the `x-admin-token` header.
 | `DELETE` | `/api/offtakers/:id` | **admin** |
 | `POST` | `/api/parse-whatsapp` | public — Gemini extraction, rate limited |
 | `POST` | `/api/predict-price` | public — Gemini, deterministic fallback, rate limited |
+
+`GET /api/prices` **omits `farmerPhone` unless a valid admin token is present.** Farmers give a
+number so the group can follow up on a quote, not so it can be published; the endpoint is public
+and unauthenticated, so returning it would hand every contributor's contact details to any
+caller. The number is still stored — verifying a suspicious submission means being able to ring
+the person — it is only withheld from public reads. `hasValidAdminToken` is the non-throwing
+check used for this; an invalid token falls back to the public shape rather than 401, since the
+endpoint genuinely serves everyone.
+
+The offtaker directory is the deliberate exception: those phone numbers exist to be shared.
 
 `requireAdmin` **fails closed**: with `ADMIN_TOKEN` unset it returns 503 rather than allowing
 everything. The token is compared with `timingSafeEqual`.

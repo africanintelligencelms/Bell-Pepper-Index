@@ -13,6 +13,22 @@ function safeEquals(a: string, b: string): boolean {
 }
 
 /**
+ * Non-throwing variant, for endpoints that serve everyone but reveal more to
+ * an admin. Returns false rather than responding, so a public caller gets the
+ * public shape instead of a 401.
+ */
+export function hasValidAdminToken(req: Request): boolean {
+  const expected = process.env.ADMIN_TOKEN;
+  if (!expected || expected.trim().length === 0) return false;
+
+  const header = req.get(ADMIN_TOKEN_HEADER);
+  const bearer = req.get('authorization')?.replace(/^Bearer\s+/i, '');
+  const provided = header ?? bearer ?? '';
+
+  return provided.length > 0 && safeEquals(provided, expected);
+}
+
+/**
  * Gates destructive and configuration-changing endpoints. Submitting a price is
  * deliberately left open — the index depends on low-friction community
  * contribution — but deleting records, resetting the dataset and rewriting the

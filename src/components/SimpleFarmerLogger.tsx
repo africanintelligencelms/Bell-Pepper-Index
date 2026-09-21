@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MarketRate, MarketRateResponse, PepperType, PriceRecord } from '../types';
+import { MarketRate, MarketRateResponse, PepperType, PriceRecord, ProductionMethod, TransactionType } from '../types';
 import { 
   Check, 
   MapPin, 
@@ -23,8 +23,8 @@ interface SimpleFarmerLoggerProps {
     type: PepperType;
     pricePerKg: number;
     quantityKg: number;
-    transactionType: 'actual_sale' | 'farmer_asking' | 'buyer_offer';
-    productionMethod: 'greenhouse';
+    transactionType: TransactionType;
+    productionMethod: ProductionMethod;
     qualityGrade: 'grade_a';
     location: string;
     farmerName: string;
@@ -59,6 +59,14 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
   const [customLocation, setCustomLocation] = useState('');
   const [farmerName, setFarmerName] = useState(() => localStorage.getItem('farmer_name') || '');
   const [farmerPhone, setFarmerPhone] = useState(() => localStorage.getItem('farmer_phone') || '');
+  // The published rate counts greenhouse sales only, so both of these have to
+  // be asked rather than assumed. They used to be hardcoded to actual_sale and
+  // greenhouse, which meant a buyer's lowball offer was recorded as a
+  // confirmed greenhouse sale and counted towards the rate farmers quote back
+  // at that same buyer.
+  const [transactionType, setTransactionType] = useState<TransactionType | null>(null);
+  const [productionMethod, setProductionMethod] = useState<ProductionMethod>('greenhouse');
+  const [showTypeError, setShowTypeError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [justSubmitted, setJustSubmitted] = useState(false);
   const [submittedPrice, setSubmittedPrice] = useState<number>(0);
@@ -82,6 +90,14 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
     e.preventDefault();
     if (!pricePerKg || Number(pricePerKg) <= 0) return;
 
+    // Deliberately no default. Pre-selecting "I sold it" would reproduce the
+    // old behaviour, because a default that is almost always accepted is the
+    // same as a hardcoded value.
+    if (!transactionType) {
+      setShowTypeError(true);
+      return;
+    }
+
     setIsSubmitting(true);
 
     const chosenLocation = location === 'Other' && customLocation.trim() ? customLocation.trim() : location;
@@ -98,8 +114,8 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
       type: variety,
       pricePerKg: numPrice,
       quantityKg: Number(quantityKg) || 50,
-      transactionType: 'actual_sale',
-      productionMethod: 'greenhouse',
+      transactionType,
+      productionMethod,
       qualityGrade: 'grade_a',
       location: chosenLocation,
       farmerName: finalName,
@@ -107,6 +123,8 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
     });
 
     setIsSubmitting(false);
+    setTransactionType(null);
+    setShowTypeError(false);
     setJustSubmitted(true);
     setTimeout(() => setJustSubmitted(false), 5000);
   };
@@ -169,10 +187,56 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
       {/* Main Clean Form Card */}
       <div className="bg-white border border-slate-200/90 rounded-3xl p-6 shadow-sm space-y-6">
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Step 1: What kind of price is this? The rate depends on it. */}
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+              1. Did you sell, or is this an offer?
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { value: 'actual_sale', label: 'I sold it', hint: 'Money agreed', emoji: '\u2705' },
+                { value: 'buyer_offer', label: 'Buyer offered', hint: "Their price", emoji: '\ud83d\udcb0' },
+                { value: 'farmer_asking', label: "I'm asking", hint: 'My price', emoji: '\ud83c\udff7\ufe0f' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    setTransactionType(opt.value);
+                    setShowTypeError(false);
+                  }}
+                  className={`p-3 rounded-2xl border-2 text-center transition-all ${
+                    transactionType === opt.value
+                      ? 'border-emerald-600 bg-emerald-50/70 text-emerald-950 shadow-xs'
+                      : 'border-slate-200 bg-slate-50/60 hover:bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  <span className="text-lg block">{opt.emoji}</span>
+                  <span className="font-bold text-xs block mt-0.5">{opt.label}</span>
+                  <span className="text-[10px] text-slate-500 block">{opt.hint}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Only completed sales set the published rate, so say so rather
+                than letting a contributor wonder why their offer changed nothing. */}
+            {transactionType && transactionType !== 'actual_sale' && (
+              <p className="text-[11px] text-slate-500 leading-snug">
+                Thank you \u2014 this is recorded for the group, but only completed sales set the
+                published going rate.
+              </p>
+            )}
+            {showTypeError && (
+              <p className="text-[11px] text-rose-600 font-semibold">
+                Please choose one \u2014 it decides whether this price counts towards the group rate.
+              </p>
+            )}
+          </div>
+
           {/* Step 1: Choose Pepper Variety */}
           <div className="space-y-2">
             <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-              1. What type of pepper did you sell?
+              2. What type of pepper?
             </label>
             <div className="grid grid-cols-2 gap-3">
               {/* Green Card */}
@@ -195,7 +259,7 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
                 </div>
                 <div>
                   <span className="font-extrabold text-base block">Green Pepper</span>
-                  <span className="text-xs text-slate-500">Greenhouse Grade A</span>
+                  <span className="text-xs text-slate-500">Grade A</span>
                 </div>
               </button>
 
@@ -225,11 +289,46 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
             </div>
           </div>
 
+          {/* Growing method: the rate counts greenhouse only, so an open-field
+              price must be able to say so rather than being filed as greenhouse. */}
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
+              3. How was it grown?
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                { value: 'greenhouse', label: 'Greenhouse', hint: 'Thick walls, long shelf life' },
+                { value: 'open_field', label: 'Open Field', hint: 'Rain-fed, sells lower' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setProductionMethod(opt.value)}
+                  className={`p-3 rounded-2xl border-2 text-left transition-all ${
+                    productionMethod === opt.value
+                      ? 'border-emerald-600 bg-emerald-50/70 text-emerald-950 shadow-xs'
+                      : 'border-slate-200 bg-slate-50/60 hover:bg-slate-100 text-slate-700'
+                  }`}
+                >
+                  <span className="font-bold text-sm block">{opt.label}</span>
+                  <span className="text-[10px] text-slate-500 block leading-snug">{opt.hint}</span>
+                </button>
+              ))}
+            </div>
+            {productionMethod === 'open_field' && (
+              <p className="text-[11px] text-amber-700 leading-snug font-medium">
+                Logged separately from greenhouse prices \u2014 the two are different markets, and
+                keeping them apart is what stops buyers quoting open-field rates for greenhouse
+                produce.
+              </p>
+            )}
+          </div>
+
           {/* Step 2: Price per KG */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                2. Price per kg (in Naira):
+                4. Price per kg (in Naira):
               </label>
               <span className="text-xs text-emerald-700 font-bold">
                 {(() => {
@@ -274,7 +373,7 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
           {/* Step 3: Quantity (kg) */}
           <div className="space-y-2.5">
             <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-              3. Quantity sold (kg):
+              5. Quantity (kg):
             </label>
 
             <div className="relative">
@@ -312,7 +411,7 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
           {/* Step 4: Market / Farm Location */}
           <div className="space-y-2">
             <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block">
-              4. Location of sale:
+              6. Location:
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {COMMON_LOCATIONS.map(loc => (
