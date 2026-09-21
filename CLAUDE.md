@@ -186,11 +186,29 @@ submitter before they submit so the tag is not a surprise.
 Un-verifying is supported deliberately: a buyer who stops paying must be demotable without
 deleting the record and losing the history.
 
-### Rate limiting the AI endpoints
+### Rate limiting the public endpoints
 
-`/api/parse-whatsapp` and `/api/predict-price` are public and every call spends Gemini quota.
-Anyone who finds the URL can drain the project's allowance — in practice a larger risk than key
-leakage, since the key never leaves the server.
+Two different risks share one limiter.
+
+`/api/parse-whatsapp` and `/api/predict-price` are capped because every call spends Gemini
+quota, and anyone who finds the URL can drain the project's allowance — in practice a larger
+risk than key leakage, since the key never leaves the server.
+
+`POST /api/prices`, `/api/prices/bulk` and `/api/offtakers` are capped because the index is the
+argument a farmer makes to a buyer. Submission is deliberately unauthenticated so contributing
+stays frictionless, which is also the attack: a buyer submits a stream of low sales and drags
+the published median down. Bulk is capped hardest (5/hour) because one request carries up to
+500 records, making it the efficient way to flood rather than the convenient way to contribute.
+
+**The limits are loose on purpose.** Nigerian mobile networks put many subscribers behind one
+public address, and farmers in a co-op may share a connection, so a per-IP cap tight enough to
+stop a determined flood would also lock out a village. They are set to stop bulk automation
+without being reachable by a group of people logging real sales. A valid `ADMIN_TOKEN` bypasses
+them entirely — an admin importing a season of WhatsApp history is doing the work the limit
+protects, not the abuse it stops.
+
+Each endpoint gets its own bucket, so exhausting one never blocks another. Reads are never
+limited.
 
 The limiter is a fixed-window counter in Postgres (`ai_rate_limits`), **not** in process
 memory. Each serverless instance has its own memory, so an in-process limiter would be bypassed
