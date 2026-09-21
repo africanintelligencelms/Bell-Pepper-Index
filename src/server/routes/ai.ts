@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import { Type } from '@google/genai';
-import { PriceRecord, PricePredictionResult, WhatsAppParsedEntry } from '../../types';
-import { GEMINI_MODEL, getGeminiClient } from '../ai/client';
-import { MARKET_PREDICTION_INSTRUCTION, WHATSAPP_EXTRACTION_INSTRUCTION } from '../ai/prompts';
-import { asyncHandler } from '../http';
-import { PREDICT_LIMIT, WHATSAPP_PARSE_LIMIT, rateLimit } from '../middleware/rateLimit';
-import { store } from '../store';
-import { ValidationError, todayIso } from '../validation';
+import { PriceRecord, PricePredictionResult, WhatsAppParsedEntry } from '../../types.js';
+import { GEMINI_MODEL, getGeminiClient } from '../ai/client.js';
+import { MARKET_PREDICTION_INSTRUCTION, WHATSAPP_EXTRACTION_INSTRUCTION } from '../ai/prompts.js';
+import { asyncHandler } from '../http.js';
+import { PREDICT_LIMIT, WHATSAPP_PARSE_LIMIT, rateLimit } from '../middleware/rateLimit.js';
+import { store } from '../store/index.js';
+import { ValidationError, todayIso } from '../validation.js';
 
 export const aiRouter = Router();
 

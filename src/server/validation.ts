@@ -8,7 +8,7 @@ import {
   QualityGrade,
   TransactionType,
   UnifiedPriceBand,
-} from '../types';
+} from '../types.js';
 
 /** Thrown for bad client input; the error handler turns this into a 400. */
 export class ValidationError extends Error {

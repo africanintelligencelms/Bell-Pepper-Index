@@ -1,5 +1,5 @@
-import { CostBreakdownItem, UnifiedPriceBand } from '../../types';
-import { query } from '../db/client';
+import { CostBreakdownItem, UnifiedPriceBand } from '../../types.js';
+import { query } from '../db/client.js';
 
 interface PriceBandRow {
   hub: string;

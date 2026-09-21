@@ -47,6 +47,14 @@ mount it:
   one function and Express does its own routing, so **adding a route needs no platform config
   change**.
 
+**Relative imports under `api/` and `src/server/` must carry an explicit `.js` extension**, and
+a directory must be imported as `<dir>/index.js`. `package.json` sets `"type": "module"`, so the
+compiled function runs as ESM on the serverless host, and Node's ESM resolver does not guess
+extensions or resolve directories. Omitting them builds and typechecks cleanly, serves static
+files cleanly, and then fails at the first invocation with `ERR_MODULE_NOT_FOUND`, which the
+platform surfaces only as `FUNCTION_INVOCATION_FAILED`. Write `.js` even though the file on disk
+is `.ts` — Vite, tsx and esbuild all resolve it back to the TypeScript source.
+
 ### The store seam
 
 Routes never branch on storage. They call `store` (`src/server/store/index.ts`), which
@@ -70,8 +78,12 @@ quietly discarding submissions.
   Point `DATABASE_URL` at a **pooled** endpoint in production (Neon's `-pooler` host, or
   Supabase port 6543).
 - **Migrations are idempotent and self-applying.** `ensureSchema()` memoises its promise per
-  process and takes a Postgres advisory lock, so simultaneous cold starts queue rather than
-  race on `CREATE TABLE`.
+  process and takes `pg_advisory_xact_lock` **inside** the migration transaction, so
+  simultaneous cold starts queue rather than race on `CREATE TABLE`. It must stay a
+  transaction-scoped lock: production pooled endpoints (Supabase's Supavisor on 6543, PgBouncer
+  in transaction mode) route each statement outside a transaction to any backend, so a session
+  lock would guard nothing and its unlock would leak. Do not use named prepared statements
+  either — transaction pooling does not support them.
 
 ### Seeding rules (these encode a product decision)
 

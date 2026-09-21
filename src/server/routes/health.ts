@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { asyncHandler } from '../http';
-import { store } from '../store';
-import { GEMINI_MODEL, isGeminiConfigured } from '../ai/client';
-import { PREDICT_LIMIT, WHATSAPP_PARSE_LIMIT } from '../middleware/rateLimit';
+import { asyncHandler } from '../http.js';
+import { store } from '../store/index.js';
+import { GEMINI_MODEL, isGeminiConfigured } from '../ai/client.js';
+import { PREDICT_LIMIT, WHATSAPP_PARSE_LIMIT } from '../middleware/rateLimit.js';
 
 export const healthRouter = Router();
 

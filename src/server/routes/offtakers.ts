@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import { asyncHandler, notFound } from '../http';
-import { requireAdmin } from '../middleware/adminAuth';
-import { store } from '../store';
-import { parseOfftaker } from '../validation';
+import { asyncHandler, notFound } from '../http.js';
+import { requireAdmin } from '../middleware/adminAuth.js';
+import { store } from '../store/index.js';
+import { parseOfftaker } from '../validation.js';
 
 export const offtakersRouter = Router();
 

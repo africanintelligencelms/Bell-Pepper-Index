@@ -1,5 +1,5 @@
-import { OfftakerContact } from '../../types';
-import { query } from '../db/client';
+import { OfftakerContact } from '../../types.js';
+import { query } from '../db/client.js';
 
 interface OfftakerRow {
   id: string;

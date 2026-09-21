@@ -1,5 +1,5 @@
-import { PriceRecord } from '../../types';
-import { query } from '../db/client';
+import { PriceRecord } from '../../types.js';
+import { query } from '../db/client.js';
 
 /**
  * Postgres returns NUMERIC as a string to preserve precision. Every numeric
