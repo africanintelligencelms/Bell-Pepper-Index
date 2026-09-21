@@ -236,6 +236,13 @@ See `DEPLOYMENT.md`. `vercel.json` sets `buildCommand` to `npm run build:client`
 `vite build` specifically so the secret scan runs on Vercel — the one environment where a leaked
 bundle is actually published.
 
+When the database is configured but unreachable, `/api/health` returns 503 with a
+`databaseError` field carrying the driver's error **code only** — never the message, which can
+echo the host or username from the connection string. `28P01` is a bad password, `XX000` from
+Supabase's pooler usually means the username is missing its `.project-ref` suffix, `ENOTFOUND`
+is a bad host, and `ETIMEDOUT` is usually the wrong port or Supabase's IPv6-only direct
+endpoint, which Vercel cannot reach at all.
+
 The single most important pre-deploy step is provisioning Postgres. Without `DATABASE_URL` the
 app falls back to the in-memory store, which on serverless lasts about one request: every
 submission is accepted, acknowledged, and lost. `/api/health` reports `"store"` and
