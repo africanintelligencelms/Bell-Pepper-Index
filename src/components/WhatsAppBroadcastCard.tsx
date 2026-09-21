@@ -56,29 +56,36 @@ export const WhatsAppBroadcastCard: React.FC<WhatsAppBroadcastCardProps> = ({
 
   const appUrl = window.location.origin;
 
-  const whatsappText = `📊 *NAIJA GREENHOUSE PEPPER PRICE INDEX*
-📅 *Date:* ${todayStr}
+  const floorLine = (rate?: MarketRate, label = 'floor') =>
+    rate?.band ? `₦${rate.band.min.toLocaleString()} / kg ${label}` : 'floor not set';
 
-🫑 *COLOURED BELL PEPPERS (Red/Yellow):*
-• *Going Rate:* ₦${coloured ? coloured.pricePerKg.toLocaleString() : '—'} / kg
-• *Based on:* ${provenance(coloured)}
-• *Most Sales Fell Between:* ${spread(coloured)}${coloured?.band ? `
-• *Agreed Range:* ₦${coloured.band.min.toLocaleString()} - ₦${coloured.band.max.toLocaleString()} / kg` : ''}
+  // The floor leads. It is the number a farmer repeats when a buyer opens low,
+  // so it has to be the first thing read in the group — the live median is
+  // supporting evidence for it, not the headline.
+  const whatsappText = `📊 *GREENHOUSE PEPPER — AGREED FLOOR PRICE*
+📅 ${todayStr}
 
-🫑 *GREEN BELL PEPPERS:*
-• *Going Rate:* ₦${green ? green.pricePerKg.toLocaleString() : '—'} / kg
-• *Based on:* ${provenance(green)}
-• *Most Sales Fell Between:* ${spread(green)}${green?.band ? `
-• *Agreed Floor:* ₦${green.band.min.toLocaleString()} / kg` : ''}
+🚫 *DO NOT SELL BELOW THESE PRICES:*
 
-⚠️ *BUYER DEFENSE ADVICE:*
-Don't sell greenhouse green peppers at rain-fed open-field rates (₦3,000)! Greenhouse quality has double shelf life & firm walls.
+🌶️ *COLOURED (Red / Yellow):*  ${floorLine(coloured, 'minimum')}
+🫑 *GREEN:*  ${floorLine(green, 'minimum')}
 
-👉 *Log sale or paste chat:*
+────────────────
+📈 *What members actually got:*
+• Coloured: ₦${coloured ? coloured.pricePerKg.toLocaleString() : '—'} / kg — ${provenance(coloured)}
+• Green: ₦${green ? green.pricePerKg.toLocaleString() : '—'} / kg — ${provenance(green)}
+${coloured?.low !== null && coloured?.low !== undefined ? `• Most coloured sales: ${spread(coloured)}\n` : ''}${green?.low !== null && green?.low !== undefined ? `• Most green sales: ${spread(green)}` : ''}
+
+⚠️ *IF A BUYER OFFERS LESS:*
+Open-field pepper is a different crop to ours. Greenhouse peppers have thicker
+walls and last 14-21 days, so we can hold and wait. Nobody has to take the
+first offer.
+
+👉 *Log what you sold for:*
 ${appUrl}
 
 _Greenhouse sales only. Buyer offers and open-field prices are excluded._
-_Powered by Greenhouse Farmers Community Network_`;
+_Naija Greenhouse Pepper Index_`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(whatsappText);
@@ -102,10 +109,10 @@ _Powered by Greenhouse Farmers Community Network_`;
             </div>
             <div>
               <h3 className="font-bold text-base md:text-lg text-slate-900">
-                Share Market Index to WhatsApp
+                Send the Agreed Floor Price
               </h3>
               <p className="text-xs text-slate-500">
-                1-Click broadcast message for your WhatsApp group
+                The price to quote when a buyer opens low
               </p>
             </div>
           </div>
@@ -122,7 +129,7 @@ _Powered by Greenhouse Farmers Community Network_`;
           <div>
             <label className="block text-xs font-bold text-slate-800 mb-2 flex items-center gap-1.5">
               <Sparkles className="w-4 h-4 text-emerald-600" />
-              <span>WhatsApp Pre-Formatted Text:</span>
+              <span>Ready to paste into the group:</span>
             </label>
             <div className="bg-slate-50 border border-emerald-300 p-4 rounded-xl font-mono text-xs text-slate-800 whitespace-pre-wrap leading-relaxed shadow-xs border-l-4 border-l-emerald-600">
               {whatsappText}
@@ -135,7 +142,7 @@ _Powered by Greenhouse Farmers Community Network_`;
               className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition flex items-center justify-center gap-2 shadow-xs"
             >
               <MessageSquare className="w-4 h-4" />
-              <span>Open in WhatsApp</span>
+              <span>Send to WhatsApp</span>
               <ExternalLink className="w-3.5 h-3.5 opacity-80" />
             </button>
 

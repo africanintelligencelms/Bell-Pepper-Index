@@ -91,6 +91,35 @@ render this endpoint's response. The broadcast is the app's most public artefact
 into the group — so it must never derive its own average. `PriceOverviewHero`, `PriceTrendChart`
 and the `predict-price` fallback still compute their own means and have not been migrated.
 
+### The agreed floor, and who may see what
+
+The association's floor lives in `price_bands` and is **admin-set, never derived**. A floor
+that recalculated from submissions would follow the market down, which is precisely what a
+buyer pushing prices wants — it would stop being resistance. The published rate moves freely
+above it; when the rate falls *below* it, the card says so in red, because that is the alarm
+the group exists to raise.
+
+Schema v3 reset the floor to Jos green ₦2,000–₦2,500 / coloured ₦3,500–₦4,200, with the other
+hubs carrying the same floor plus their existing freight differential. That migration also
+cleared every price record logged before the reset: they sat above the new ceiling, so leaving
+them would have published a median near ₦4,500 directly above an agreed range of ₦2,000–₦2,500.
+Bands are normally seeded `ON CONFLICT DO NOTHING` so tuned figures survive a deploy; the reset
+is a deliberate one-time exception, gated on the schema version so it runs exactly once and
+later admin edits stay safe. `INITIAL_PRICE_RECORDS` is now empty for the same reason — showing
+nothing is honest when there is nothing recent; showing stale prices is not.
+
+**Nothing in the UI may hardcode a price.** The prefilled price, the quick-tap options and the
+floor warnings all derive from the live band. The form previously suggested ₦4,500 while the
+agreed floor was ₦2,250; a prefill that is wrong is worse than no prefill.
+
+**Advanced tools are earned, not requested.** `src/lib/contribution.ts` counts sales logged on
+this device and opens the history charts, COP calculator and chat reader at three. This is a
+nudge, not a security boundary — the count is in `localStorage` and every gated tool reads data
+the API already serves publicly. It exists because the index is only as good as what members
+log, so the thing the app needs is the thing that unlocks it, and because an approval queue
+would mean farmers waiting on an administrator. **The offtaker directory never locks**: a
+farmer with a perishable harvest needs a buyer's number today.
+
 ### The store seam
 
 Routes never branch on storage. They call `store` (`src/server/store/index.ts`), which
@@ -321,6 +350,9 @@ without the first the app is non-persistent, without the second all admin action
 
 - **Test coverage is limited to the going rate.** `npm test` covers `src/server/marketRate.ts`
   (22 assertions). Everything else is verified by hand against a real Postgres.
+- **The floor is per-hub but the simple logger always shows the first band** (Jos farmgate).
+  A Lagos farmer sees the Jos floor unless an admin reorders the hubs. `/api/market-rate`
+  accepts `?hub=` but nothing in the UI sets it.
 - **Three components still compute their own averages** — `PriceOverviewHero`,
   `PriceTrendChart` and the `predict-price` deterministic fallback — using the plain unfiltered
   mean that `/api/market-rate` replaced. They will disagree with the headline figure.

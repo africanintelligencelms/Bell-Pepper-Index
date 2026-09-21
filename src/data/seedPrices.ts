@@ -1,145 +1,15 @@
 import { PriceRecord } from '../types';
 
-export const INITIAL_PRICE_RECORDS: PriceRecord[] = [
-  {
-    id: 'rec-wa-001',
-    type: 'coloured',
-    pricePerKg: 7000,
-    quantityKg: 50,
-    transactionType: 'farmer_asking',
-    productionMethod: 'greenhouse',
-    qualityGrade: 'grade_a',
-    location: 'Jos (Kwang Zion), Plateau State',
-    date: '2026-07-15',
-    farmerName: 'Dafom Stephen Friday',
-    farmerPhone: '+234 906 790 3161',
-    notes: 'Greenhouse premium quality harvest quote from Jos region.',
-    source: 'whatsapp_extracted',
-    createdAt: '2026-07-15T08:13:00Z'
-  },
-  {
-    id: 'rec-wa-002',
-    type: 'green',
-    pricePerKg: 3500,
-    quantityKg: 100,
-    transactionType: 'farmer_asking',
-    productionMethod: 'greenhouse',
-    qualityGrade: 'grade_a',
-    location: 'Jos, Plateau State',
-    date: '2026-07-15',
-    farmerName: 'Dafom Stephen Friday',
-    farmerPhone: '+234 906 790 3161',
-    notes: 'Standard greenhouse green pepper harvest rate.',
-    source: 'whatsapp_extracted',
-    createdAt: '2026-07-15T08:13:00Z'
-  },
-  {
-    id: 'rec-wa-003',
-    type: 'green',
-    pricePerKg: 4500,
-    quantityKg: 200,
-    transactionType: 'actual_sale',
-    productionMethod: 'greenhouse',
-    qualityGrade: 'grade_a',
-    location: 'Jos East (Babawo), Plateau State',
-    date: '2026-07-15',
-    farmerName: 'Hoomsuk',
-    farmerPhone: '+234 803 285 9957',
-    notes: '200kg bulk green pepper batch sale agreed with buyer.',
-    source: 'whatsapp_extracted',
-    createdAt: '2026-07-15T08:23:00Z'
-  },
-  {
-    id: 'rec-wa-004',
-    type: 'green',
-    pricePerKg: 5000,
-    quantityKg: 80,
-    transactionType: 'buyer_offer',
-    productionMethod: 'greenhouse',
-    qualityGrade: 'grade_a',
-    location: 'Jos, Plateau State',
-    date: '2026-07-15',
-    farmerName: 'Bandekaji',
-    farmerPhone: '+234 703 615 0770',
-    notes: 'Offtaker buyer bid for greenhouse green peppers.',
-    source: 'whatsapp_extracted',
-    createdAt: '2026-07-15T11:52:00Z'
-  },
-  {
-    id: 'rec-wa-005',
-    type: 'coloured',
-    pricePerKg: 7000,
-    quantityKg: 30,
-    transactionType: 'buyer_offer',
-    productionMethod: 'greenhouse',
-    qualityGrade: 'grade_a',
-    location: 'Abuja (FCT)',
-    date: '2026-07-16',
-    farmerName: 'Farm With Magaji',
-    farmerPhone: '+234 701 079 9438',
-    notes: 'Offtaker request looking for 30kg coloured peppers in FCT.',
-    source: 'whatsapp_extracted',
-    createdAt: '2026-07-16T13:02:00Z'
-  },
-  {
-    id: 'rec-wa-006',
-    type: 'coloured',
-    pricePerKg: 7500,
-    quantityKg: 60,
-    transactionType: 'actual_sale',
-    productionMethod: 'greenhouse',
-    qualityGrade: 'grade_a',
-    location: 'Kano (Dawakin Kudu)',
-    date: '2026-07-17',
-    farmerName: 'Musa Greenhouse Farms',
-    farmerPhone: '+234 803 606 9934',
-    notes: 'Red & Yellow bell peppers sold to supermarket distributor.',
-    source: 'manual_entry',
-    createdAt: '2026-07-17T10:15:00Z'
-  },
-  {
-    id: 'rec-wa-007',
-    type: 'green',
-    pricePerKg: 3000,
-    quantityKg: 150,
-    transactionType: 'buyer_offer',
-    productionMethod: 'open_field',
-    qualityGrade: 'grade_b',
-    location: 'Zaria, Kaduna State',
-    date: '2026-07-18',
-    farmerName: 'Open Field Trader',
-    notes: 'Open-field harvest glut causing low price offers in local market.',
-    source: 'manual_entry',
-    createdAt: '2026-07-18T14:20:00Z'
-  },
-  {
-    id: 'rec-wa-008',
-    type: 'coloured',
-    pricePerKg: 8000,
-    quantityKg: 40,
-    transactionType: 'actual_sale',
-    productionMethod: 'greenhouse',
-    qualityGrade: 'grade_a',
-    location: 'Lagos (Mile 12 Market Direct)',
-    date: '2026-07-19',
-    farmerName: 'Epe Greenhouse Cluster',
-    notes: 'Premium grade Red Bell Peppers delivered directly to hotel buyer.',
-    source: 'manual_entry',
-    createdAt: '2026-07-19T09:30:00Z'
-  },
-  {
-    id: 'rec-wa-009',
-    type: 'green',
-    pricePerKg: 4200,
-    quantityKg: 120,
-    transactionType: 'actual_sale',
-    productionMethod: 'greenhouse',
-    qualityGrade: 'grade_a',
-    location: 'Ibadan, Oyo State',
-    date: '2026-07-20',
-    farmerName: 'AgroTech Greenhouse',
-    notes: 'Thick-walled greenhouse green peppers sold to off-taker.',
-    source: 'manual_entry',
-    createdAt: '2026-07-20T16:05:00Z'
-  }
-];
+/**
+ * Intentionally empty.
+ *
+ * The sample records that used to live here were logged against a price floor
+ * roughly twice the current one, so seeding them would immediately contradict
+ * the agreed range the app publishes. The index now starts empty and is defined
+ * entirely by what farmers log — which is also what makes the first few
+ * submissions worth making.
+ *
+ * This doubles as the offline fallback in `App.tsx`: showing nothing is honest
+ * when the API cannot be reached; showing stale prices is not.
+ */
+export const INITIAL_PRICE_RECORDS: PriceRecord[] = [];

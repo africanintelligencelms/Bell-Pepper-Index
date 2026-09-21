@@ -24,6 +24,14 @@ const globalWithMigration = globalThis as GlobalWithMigration;
 
 async function applySchema(client: PoolClient): Promise<void> {
   await client.query(SCHEMA_SQL);
+}
+
+/**
+ * Recorded only once the version-gated steps have run. Stamping the version
+ * inside applySchema would make every such step see its own version already
+ * present and skip itself.
+ */
+async function recordSchemaVersion(client: PoolClient): Promise<void> {
   await client.query(
     `INSERT INTO schema_migrations (version) VALUES ($1) ON CONFLICT (version) DO NOTHING`,
     [SCHEMA_VERSION],
@@ -136,6 +144,52 @@ async function seedOfftakers(client: PoolClient): Promise<void> {
   }
 }
 
+/**
+ * v3: reset the agreed floor, and clear the price records that predate it.
+ *
+ * The association re-set the floor to roughly half its previous level. Every
+ * record logged before that decision sits above the new ceiling, so leaving
+ * them in place would have the card publishing a median near ₦4,500 directly
+ * above an agreed range of ₦2,000–₦2,500 — a contradiction a farmer would
+ * rightly stop trusting.
+ *
+ * Bands are normally seeded with ON CONFLICT DO NOTHING precisely so tuned
+ * figures survive a deploy. This is the deliberate exception: a one-time,
+ * version-gated correction rather than a re-seed, so it applies exactly once
+ * and later admin edits are still safe.
+ */
+async function applyFloorReset(client: PoolClient): Promise<void> {
+  const { rows } = await client.query<{ exists: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version >= 3) AS exists`,
+  );
+  if (rows[0].exists) return;
+
+  for (const band of DEFAULT_PRICE_BANDS) {
+    await client.query(
+      `UPDATE price_bands SET
+         coloured_min = $2, coloured_target = $3, coloured_max = $4,
+         green_min = $5, green_target = $6, green_max = $7,
+         logistics_from_jos_per_kg = $8, notes = $9, updated_at = now()
+       WHERE hub = $1`,
+      [
+        band.hub,
+        band.colouredMin,
+        band.colouredTarget,
+        band.colouredMax,
+        band.greenMin,
+        band.greenTarget,
+        band.greenMax,
+        band.logisticsFromJosPerKg,
+        band.notes,
+      ],
+    );
+  }
+
+  // The index restarts from the new floor; fresh submissions define it.
+  const { rowCount } = await client.query('DELETE FROM price_records');
+  console.log(`Floor reset applied: bands updated, ${rowCount ?? 0} pre-reset price records cleared.`);
+}
+
 /** Applies the schema and seeds reference data. Safe to call repeatedly. */
 export async function migrate(): Promise<void> {
   const client = await getPool().connect();
@@ -143,10 +197,12 @@ export async function migrate(): Promise<void> {
     await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock($1)', [MIGRATION_LOCK_ID]);
     await applySchema(client);
+    await applyFloorReset(client);
     const seeded = await seedPriceRecords(client);
     await seedPriceBands(client);
     await seedCopItems(client);
     await seedOfftakers(client);
+    await recordSchemaVersion(client);
     await client.query('COMMIT');
     console.log(
       seeded > 0
