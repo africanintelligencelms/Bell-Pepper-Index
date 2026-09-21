@@ -29,6 +29,17 @@ export default function App() {
   // directory never locks, because a farmer with a harvest to move needs a
   // buyer's number today, not after they have contributed.
   const [contributions, setContributions] = useState<number>(() => getContributionCount());
+  // Where this farmer sells decides which floor they should be quoting. Lagos
+  // carries ₦450/kg of freight over Jos, so showing everyone the Jos floor
+  // tells a Lagos farmer to undercut by exactly their own haulage cost.
+  // Remembered on the device so it is asked once, not every visit.
+  const [farmerLocation, setFarmerLocation] = useState<string>(() => {
+    try {
+      return localStorage.getItem('farmer_location') || 'Jos, Plateau State';
+    } catch {
+      return 'Jos, Plateau State';
+    }
+  });
   const unlocked = hasUnlockedTools(contributions);
   const [isLoading, setIsLoading] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
@@ -100,9 +111,9 @@ export default function App() {
 
   // The going rate is computed server-side so there is one definition of it,
   // and so a phone fetches two numbers rather than the whole index.
-  const fetchMarketRate = async () => {
+  const fetchMarketRate = async (location: string = farmerLocation) => {
     try {
-      const res = await fetch('/api/market-rate');
+      const res = await fetch(`/api/market-rate?location=${encodeURIComponent(location)}`);
       const json = await res.json();
       if (json.success && json.data) setMarketRate(json.data);
     } catch (err) {
@@ -113,8 +124,20 @@ export default function App() {
   useEffect(() => {
     fetchPrices();
     fetchMarketConfig();
-    fetchMarketRate();
   }, []);
+
+  useEffect(() => {
+    void fetchMarketRate(farmerLocation);
+  }, [farmerLocation]);
+
+  const handleLocationChange = (location: string) => {
+    setFarmerLocation(location);
+    try {
+      localStorage.setItem('farmer_location', location);
+    } catch {
+      // Non-fatal: the rate still follows the choice for this session.
+    }
+  };
 
   // Handle single manual price submission
   const handleAddPrice = async (newEntry: {
@@ -320,6 +343,8 @@ export default function App() {
               marketRate={marketRate}
               contributions={contributions}
               unlocked={unlocked}
+              farmerLocation={farmerLocation}
+              onLocationChange={handleLocationChange}
               onAddPrice={handleAddPrice}
               onOpenOfftakers={() => {
                 setAppMode('advanced');

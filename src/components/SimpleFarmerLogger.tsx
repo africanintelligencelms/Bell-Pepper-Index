@@ -22,6 +22,9 @@ interface SimpleFarmerLoggerProps {
   /** Sales logged on this device, and whether that has opened the extra tools. */
   contributions: number;
   unlocked: boolean;
+  /** Where this farmer sells — decides which hub's floor they are shown. */
+  farmerLocation: string;
+  onLocationChange: (location: string) => void;
   onAddPrice: (entry: {
     type: PepperType;
     pricePerKg: number;
@@ -51,6 +54,8 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
   marketRate,
   contributions,
   unlocked,
+  farmerLocation,
+  onLocationChange,
   onAddPrice,
   onOpenOfftakers,
   onOpenAdvanced,
@@ -64,7 +69,9 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
   const [pricePerKg, setPricePerKg] = useState<number | ''>('');
   const [priceTouched, setPriceTouched] = useState(false);
   const [quantityKg, setQuantityKg] = useState<number | ''>(50);
-  const [location, setLocation] = useState('Jos, Plateau State');
+  // Lifted to App: changing it must also change which floor is displayed.
+  const location = farmerLocation;
+  const setLocation = onLocationChange;
   const [customLocation, setCustomLocation] = useState('');
   const [farmerName, setFarmerName] = useState(() => localStorage.getItem('farmer_name') || '');
   const [farmerPhone, setFarmerPhone] = useState(() => localStorage.getItem('farmer_phone') || '');
@@ -579,18 +586,33 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
 
       {/* Today's Market Rate Summary Banner */}
       <div className="bg-slate-900 text-white rounded-3xl p-5 shadow-sm space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-emerald-400" />
-            <span className="font-bold text-sm text-white">Today's Going Rates</span>
+        <div className="border-b border-slate-800 pb-3 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-400" />
+              <span className="font-bold text-sm text-white">Today's Going Rates</span>
+            </div>
+            {/* Naming the hub matters: these figures differ by up to ₦450/kg of
+                freight, so a farmer has to be able to see the floor is theirs. */}
+            {marketRate?.hub && (
+              <span className="text-[11px] text-emerald-300 font-semibold flex items-center gap-1 shrink-0">
+                <MapPin className="w-3 h-3" />
+                <span>{marketRate.hub.split(' (')[0]}</span>
+              </span>
+            )}
           </div>
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-slate-400 block">
             {marketRate
               ? marketRate.green.sufficient || marketRate.coloured.sufficient
                 ? `Median of greenhouse sales, last ${Math.max(marketRate.green.windowDays, marketRate.coloured.windowDays)} days`
-                : 'Association agreed rates'
+                : 'Association agreed floor — no recent sales logged yet'
               : 'Loading live rates…'}
           </span>
+          {marketRate?.hub && (
+            <span className="text-[11px] text-slate-500 block">
+              Showing prices for {location}. Change your location above to see another hub.
+            </span>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">

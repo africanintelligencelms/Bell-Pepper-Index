@@ -108,6 +108,15 @@ is a deliberate one-time exception, gated on the schema version so it runs exact
 later admin edits stay safe. `INITIAL_PRICE_RECORDS` is now empty for the same reason — showing
 nothing is honest when there is nothing recent; showing stale prices is not.
 
+**The floor a farmer sees follows where they sell.** `GET /api/market-rate` accepts `?location=`
+(the logger's label, e.g. `Lagos (Mile 12)`) or `?hub=` (an exact band name), and `resolveHub`
+maps either to a band — exact match, then town name, then the farmgate band as the fallback,
+since it is the lowest and assumes no freight. The mapping lives on the server so there is one
+definition of it. This is not cosmetic: Lagos carries ₦450/kg of freight over Jos, so a Lagos
+farmer shown the Jos floor is being told to undercut by exactly the haulage they are paying.
+The choice is remembered per device and the card names its hub, because a floor a farmer cannot
+attribute is a floor they cannot quote.
+
 **Nothing in the UI may hardcode a price.** The prefilled price, the quick-tap options and the
 floor warnings all derive from the live band. The form previously suggested ₦4,500 while the
 agreed floor was ₦2,250; a prefill that is wrong is worse than no prefill.
@@ -350,9 +359,6 @@ without the first the app is non-persistent, without the second all admin action
 
 - **Test coverage is limited to the going rate.** `npm test` covers `src/server/marketRate.ts`
   (22 assertions). Everything else is verified by hand against a real Postgres.
-- **The floor is per-hub but the simple logger always shows the first band** (Jos farmgate).
-  A Lagos farmer sees the Jos floor unless an admin reorders the hubs. `/api/market-rate`
-  accepts `?hub=` but nothing in the UI sets it.
 - **Three components still compute their own averages** — `PriceOverviewHero`,
   `PriceTrendChart` and the `predict-price` deterministic fallback — using the plain unfiltered
   mean that `/api/market-rate` replaced. They will disagree with the headline figure.

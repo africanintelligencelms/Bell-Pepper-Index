@@ -156,3 +156,40 @@ export function resolveMarketRate(
       : `Not enough recent sales (${counted} in ${MAX_WINDOW_DAYS} days) and no agreed band is configured.`,
   };
 }
+
+/**
+ * Resolves whatever the client knows about where a farmer sells — an exact hub
+ * name, or the looser location label the logger offers — to one of the
+ * association's bands.
+ *
+ * This mapping lives on the server so there is one definition of it. The
+ * difference is not cosmetic: Lagos carries ₦450/kg of freight over Jos, so a
+ * Lagos farmer shown the Jos floor is being told to undercut by exactly the
+ * haulage they are paying.
+ */
+export function resolveHub<T extends { hub: string }>(
+  bands: T[],
+  requested: string | null | undefined,
+): T | null {
+  if (bands.length === 0) return null;
+  if (!requested) return bands[0];
+
+  const needle = requested.trim().toLowerCase();
+  if (!needle) return bands[0];
+
+  const exact = bands.find((b) => b.hub.toLowerCase() === needle);
+  if (exact) return exact;
+
+  // 'Lagos (Mile 12)' from the form should find 'Lagos (Mile 12 / Retail /
+  // Hotels)' in the bands, so match on the town name both sides share.
+  const TOWNS = ['jos', 'abuja', 'lagos', 'kano'];
+  const town = TOWNS.find((t) => needle.includes(t));
+  if (town) {
+    const byTown = bands.find((b) => b.hub.toLowerCase().includes(town));
+    if (byTown) return byTown;
+  }
+
+  // 'Other', or somewhere we do not have a band for: the farmgate floor is the
+  // safest answer, since it is the lowest and carries no freight assumption.
+  return bands[0];
+}
