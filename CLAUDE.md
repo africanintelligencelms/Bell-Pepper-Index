@@ -91,6 +91,44 @@ render this endpoint's response. The broadcast is the app's most public artefact
 into the group — so it must never derive its own average. `PriceOverviewHero`, `PriceTrendChart`
 and the `predict-price` fallback still compute their own means and have not been migrated.
 
+### The agreed floor, and who may see what
+
+The association's floor lives in `price_bands` and is **admin-set, never derived**. A floor
+that recalculated from submissions would follow the market down, which is precisely what a
+buyer pushing prices wants — it would stop being resistance. The published rate moves freely
+above it; when the rate falls *below* it, the card says so in red, because that is the alarm
+the group exists to raise.
+
+Schema v3 reset the floor to Jos green ₦2,000–₦2,500 / coloured ₦3,500–₦4,200, with the other
+hubs carrying the same floor plus their existing freight differential. That migration also
+cleared every price record logged before the reset: they sat above the new ceiling, so leaving
+them would have published a median near ₦4,500 directly above an agreed range of ₦2,000–₦2,500.
+Bands are normally seeded `ON CONFLICT DO NOTHING` so tuned figures survive a deploy; the reset
+is a deliberate one-time exception, gated on the schema version so it runs exactly once and
+later admin edits stay safe. `INITIAL_PRICE_RECORDS` is now empty for the same reason — showing
+nothing is honest when there is nothing recent; showing stale prices is not.
+
+**The floor a farmer sees follows where they sell.** `GET /api/market-rate` accepts `?location=`
+(the logger's label, e.g. `Lagos (Mile 12)`) or `?hub=` (an exact band name), and `resolveHub`
+maps either to a band — exact match, then town name, then the farmgate band as the fallback,
+since it is the lowest and assumes no freight. The mapping lives on the server so there is one
+definition of it. This is not cosmetic: Lagos carries ₦450/kg of freight over Jos, so a Lagos
+farmer shown the Jos floor is being told to undercut by exactly the haulage they are paying.
+The choice is remembered per device and the card names its hub, because a floor a farmer cannot
+attribute is a floor they cannot quote.
+
+**Nothing in the UI may hardcode a price.** The prefilled price, the quick-tap options and the
+floor warnings all derive from the live band. The form previously suggested ₦4,500 while the
+agreed floor was ₦2,250; a prefill that is wrong is worse than no prefill.
+
+**Advanced tools are earned, not requested.** `src/lib/contribution.ts` counts sales logged on
+this device and opens the history charts, COP calculator and chat reader at three. This is a
+nudge, not a security boundary — the count is in `localStorage` and every gated tool reads data
+the API already serves publicly. It exists because the index is only as good as what members
+log, so the thing the app needs is the thing that unlocks it, and because an approval queue
+would mean farmers waiting on an administrator. **The offtaker directory never locks**: a
+farmer with a perishable harvest needs a buyer's number today.
+
 ### The store seam
 
 Routes never branch on storage. They call `store` (`src/server/store/index.ts`), which

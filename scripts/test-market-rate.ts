@@ -6,7 +6,7 @@
  * worth asserting rather than assuming. Deliberately dependency-free: run with
  * `npm test`, no test runner to install or configure.
  */
-import { resolveMarketRate, median, percentile, windowStart, RateSample } from '../src/server/marketRate.js';
+import { resolveMarketRate, resolveHub, median, percentile, windowStart, RateSample } from '../src/server/marketRate.js';
 import { UnifiedPriceBand } from '../src/types.js';
 
 const band: UnifiedPriceBand = {
@@ -78,6 +78,26 @@ check('coloured uses coloured band', [r.pricePerKg, r.withinBand, r.band?.target
 
 r = resolveMarketRate('green', [s(4400,14), s(4500,13), s(4600,12)], band, TODAY);
 check('boundary: exactly 14 days ago is included', [r.windowDays, r.sampleSize], [14, 3]);
+
+console.log('\nhub resolution');
+const BANDS = [
+  { hub: 'Jos Farm Gate (Plateau)' },
+  { hub: 'Abuja (FCT) Direct Offtake' },
+  { hub: 'Lagos (Mile 12 / Retail / Hotels)' },
+  { hub: 'Kano / North Hubs' },
+];
+const hub = (q: string | null) => resolveHub(BANDS, q)?.hub;
+check('exact hub name', hub('Lagos (Mile 12 / Retail / Hotels)'), 'Lagos (Mile 12 / Retail / Hotels)');
+check('form label maps to band', hub('Lagos (Mile 12)'), 'Lagos (Mile 12 / Retail / Hotels)');
+check('Jos form label', hub('Jos, Plateau State'), 'Jos Farm Gate (Plateau)');
+check('Abuja form label', hub('Abuja (FCT)'), 'Abuja (FCT) Direct Offtake');
+check('Kano form label', hub('Kano State'), 'Kano / North Hubs');
+check('case insensitive', hub('lagos'), 'Lagos (Mile 12 / Retail / Hotels)');
+check('unknown town falls back to farmgate', hub('Ibadan'), 'Jos Farm Gate (Plateau)');
+check('"Other" falls back to farmgate', hub('Other'), 'Jos Farm Gate (Plateau)');
+check('nothing requested', hub(null), 'Jos Farm Gate (Plateau)');
+check('empty string', hub('   '), 'Jos Farm Gate (Plateau)');
+check('no bands at all', resolveHub([], 'Lagos'), null);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

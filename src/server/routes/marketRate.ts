@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { PepperType } from '../../types.js';
 import { asyncHandler } from '../http.js';
-import { MAX_WINDOW_DAYS, resolveMarketRate, windowStart } from '../marketRate.js';
+import { MAX_WINDOW_DAYS, resolveHub, resolveMarketRate, windowStart } from '../marketRate.js';
 import { store } from '../store/index.js';
 
 export const marketRateRouter = Router();
@@ -23,10 +23,14 @@ marketRateRouter.get(
   asyncHandler(async (req, res) => {
     const bands = await store.listPriceBands();
 
-    // The farmgate band is the default because the simple logger is aimed at
-    // farmers selling at the farm, not at buyers in a city market.
-    const requestedHub = typeof req.query.hub === 'string' ? req.query.hub : null;
-    const band = (requestedHub && bands.find((b) => b.hub === requestedHub)) || bands[0] || null;
+    // Accepts either an exact hub name or the looser location label the logger
+    // offers ('Lagos (Mile 12)'), and falls back to the farmgate band — the
+    // lowest, and the one that assumes no freight.
+    const requested =
+      (typeof req.query.hub === 'string' && req.query.hub) ||
+      (typeof req.query.location === 'string' && req.query.location) ||
+      null;
+    const band = resolveHub(bands, requested);
 
     const since = windowStart(MAX_WINDOW_DAYS);
 

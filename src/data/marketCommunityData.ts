@@ -3,47 +3,47 @@ import { UnifiedPriceBand, OfftakerContact, CostBreakdownItem } from '../types';
 export const DEFAULT_PRICE_BANDS: UnifiedPriceBand[] = [
   {
     hub: 'Jos Farm Gate (Plateau)',
-    colouredMin: 6500,
-    colouredTarget: 7000,
-    colouredMax: 7500,
-    greenMin: 4000,
-    greenTarget: 4500,
-    greenMax: 5000,
+    colouredMin: 3500,
+    colouredTarget: 3850,
+    colouredMax: 4200,
+    greenMin: 2000,
+    greenTarget: 2250,
+    greenMax: 2500,
     logisticsFromJosPerKg: 0,
-    notes: 'Primary greenhouse production belt. Target floor for farmgate pickup without interstate freight.'
+    notes: 'Primary greenhouse production belt. This is the agreed floor — the number to quote when a buyer opens lower.'
   },
   {
     hub: 'Abuja (FCT) Direct Offtake',
-    colouredMin: 7200,
-    colouredTarget: 7800,
-    colouredMax: 8500,
-    greenMin: 4500,
-    greenTarget: 5000,
-    greenMax: 5500,
+    colouredMin: 3700,
+    colouredTarget: 4050,
+    colouredMax: 4400,
+    greenMin: 2200,
+    greenTarget: 2450,
+    greenMax: 2700,
     logisticsFromJosPerKg: 200,
-    notes: 'Hotels, supermarkets & high-end green grocers in Maitama, Garki & Wuse 2.'
+    notes: 'Hotels, supermarkets & high-end green grocers in Maitama, Garki & Wuse 2. Jos floor plus ₦200/kg freight.'
   },
   {
     hub: 'Lagos (Mile 12 / Retail / Hotels)',
-    colouredMin: 7800,
-    colouredTarget: 8500,
-    colouredMax: 9500,
-    greenMin: 4800,
-    greenTarget: 5500,
-    greenMax: 6000,
+    colouredMin: 3950,
+    colouredTarget: 4300,
+    colouredMax: 4650,
+    greenMin: 2450,
+    greenTarget: 2700,
+    greenMax: 2950,
     logisticsFromJosPerKg: 450,
-    notes: 'Includes interstate truck freight (₦400-₦500/kg). Offtakers trying to buy below ₦4,800 for green are undercutting!'
+    notes: 'Jos floor plus ₦450/kg interstate freight. A Lagos seller quoting the Jos floor is absorbing the haulage themselves.'
   },
   {
     hub: 'Kano / North Hubs',
-    colouredMin: 6800,
-    colouredTarget: 7400,
-    colouredMax: 8000,
-    greenMin: 4200,
-    greenTarget: 4700,
-    greenMax: 5200,
+    colouredMin: 3750,
+    colouredTarget: 4100,
+    colouredMax: 4450,
+    greenMin: 2250,
+    greenTarget: 2500,
+    greenMax: 2750,
     logisticsFromJosPerKg: 250,
-    notes: 'Commercial trade hub. Wholesale buyers and institutional catering.'
+    notes: 'Commercial trade hub. Jos floor plus ₦250/kg freight.'
   }
 ];
 

@@ -14,6 +14,7 @@ import { OfftakerDirectory, NewOfftakerInput } from './components/OfftakerDirect
 import { SimpleFarmerLogger } from './components/SimpleFarmerLogger';
 import { INITIAL_PRICE_RECORDS } from './data/seedPrices';
 import { adminRequest, getAdminToken, promptForAdminToken } from './lib/adminToken';
+import { getContributionCount, hasUnlockedTools, recordContribution } from './lib/contribution';
 import { CheckCircle, Sprout, Sparkles, PlusCircle, BarChart2, Scale, Calculator, Users, ArrowRight } from 'lucide-react';
 
 export default function App() {
@@ -24,6 +25,22 @@ export default function App() {
   const [copItems, setCopItems] = useState<CostBreakdownItem[] | undefined>(undefined);
   const [offtakers, setOfftakers] = useState<OfftakerContact[] | undefined>(undefined);
   const [marketRate, setMarketRate] = useState<MarketRateResponse | undefined>(undefined);
+  // Sales this device has logged. Advanced tools open at three; the offtaker
+  // directory never locks, because a farmer with a harvest to move needs a
+  // buyer's number today, not after they have contributed.
+  const [contributions, setContributions] = useState<number>(() => getContributionCount());
+  // Where this farmer sells decides which floor they should be quoting. Lagos
+  // carries ₦450/kg of freight over Jos, so showing everyone the Jos floor
+  // tells a Lagos farmer to undercut by exactly their own haulage cost.
+  // Remembered on the device so it is asked once, not every visit.
+  const [farmerLocation, setFarmerLocation] = useState<string>(() => {
+    try {
+      return localStorage.getItem('farmer_location') || 'Jos, Plateau State';
+    } catch {
+      return 'Jos, Plateau State';
+    }
+  });
+  const unlocked = hasUnlockedTools(contributions);
   const [isLoading, setIsLoading] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -94,9 +111,9 @@ export default function App() {
 
   // The going rate is computed server-side so there is one definition of it,
   // and so a phone fetches two numbers rather than the whole index.
-  const fetchMarketRate = async () => {
+  const fetchMarketRate = async (location: string = farmerLocation) => {
     try {
-      const res = await fetch('/api/market-rate');
+      const res = await fetch(`/api/market-rate?location=${encodeURIComponent(location)}`);
       const json = await res.json();
       if (json.success && json.data) setMarketRate(json.data);
     } catch (err) {
@@ -107,8 +124,20 @@ export default function App() {
   useEffect(() => {
     fetchPrices();
     fetchMarketConfig();
-    fetchMarketRate();
   }, []);
+
+  useEffect(() => {
+    void fetchMarketRate(farmerLocation);
+  }, [farmerLocation]);
+
+  const handleLocationChange = (location: string) => {
+    setFarmerLocation(location);
+    try {
+      localStorage.setItem('farmer_location', location);
+    } catch {
+      // Non-fatal: the rate still follows the choice for this session.
+    }
+  };
 
   // Handle single manual price submission
   const handleAddPrice = async (newEntry: {
@@ -140,6 +169,7 @@ export default function App() {
         showToast(`Logged ₦${newEntry.pricePerKg.toLocaleString()}/kg for ${newEntry.type} pepper!`);
         // A new sale can change the median, the window or the sample count.
         void fetchMarketRate();
+        setContributions(recordContribution());
       } else {
         throw new Error(json.error || 'Failed to submit price');
       }
@@ -276,6 +306,8 @@ export default function App() {
         setActiveTab={setActiveTab}
         appMode={appMode}
         setAppMode={setAppMode}
+        unlocked={unlocked}
+        contributions={contributions}
         onOpenBroadcastModal={() => setIsBroadcastModalOpen(true)}
         onResetData={handleResetData}
         isResetting={isResetting}
@@ -285,7 +317,7 @@ export default function App() {
       {/* Main Container - Bite-Sized Clean Sections */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 space-y-6">
         {/* Advanced Mode Notice Banner */}
-        {appMode === 'advanced' && (
+        {unlocked && appMode === 'advanced' && (
           <div className="bg-emerald-50/90 border border-emerald-200 rounded-2xl px-4 py-2.5 flex items-center justify-between text-xs gap-2">
             <span className="font-semibold text-emerald-900 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
@@ -304,11 +336,15 @@ export default function App() {
         )}
 
         {/* Simple Mode: Clean, Jargon-Free Logger for Farmers & Civil Servants */}
-        {(appMode === 'simple' || activeTab === 'simple_logger') && (
+        {(appMode === 'simple' || activeTab === 'simple_logger' || (!unlocked && activeTab !== 'offtakers')) && (
           <div className="animate-in fade-in duration-200">
             <SimpleFarmerLogger
               records={records}
               marketRate={marketRate}
+              contributions={contributions}
+              unlocked={unlocked}
+              farmerLocation={farmerLocation}
+              onLocationChange={handleLocationChange}
               onAddPrice={handleAddPrice}
               onOpenOfftakers={() => {
                 setAppMode('advanced');
@@ -324,7 +360,7 @@ export default function App() {
         )}
 
         {/* Tab 1: Live Market Index (Advanced Mode) */}
-        {appMode === 'advanced' && activeTab === 'live' && (
+        {unlocked && appMode === 'advanced' && activeTab === 'live' && (
           <div className="space-y-6 animate-in fade-in duration-200">
             <PriceOverviewHero
               records={records}
@@ -451,7 +487,7 @@ export default function App() {
         )}
 
         {/* Tab 2: Unified (+/-) Range Band */}
-        {appMode === 'advanced' && activeTab === 'band' && (
+        {unlocked && appMode === 'advanced' && activeTab === 'band' && (
           <div className="space-y-6 animate-in fade-in duration-200">
             <UnifiedPriceBandCard 
               bands={priceBands}
@@ -463,7 +499,7 @@ export default function App() {
         )}
 
         {/* Tab 3: COP & Breakeven Decision Matrix */}
-        {appMode === 'advanced' && activeTab === 'calculator' && (
+        {unlocked && appMode === 'advanced' && activeTab === 'calculator' && (
           <div className="space-y-6 animate-in fade-in duration-200">
             <ProductionCostCalculator
               costItems={copItems}
@@ -485,7 +521,7 @@ export default function App() {
         )}
 
         {/* Tab 5: AI WhatsApp Chat Parser */}
-        {appMode === 'advanced' && activeTab === 'extractor' && (
+        {unlocked && appMode === 'advanced' && activeTab === 'extractor' && (
           <div className="animate-in fade-in duration-200">
             <WhatsAppExtractorModal
               isOpen={true}
@@ -500,7 +536,7 @@ export default function App() {
         )}
 
         {/* Tab 6: Log Sale Price Form */}
-        {appMode === 'advanced' && activeTab === 'log' && (
+        {unlocked && appMode === 'advanced' && activeTab === 'log' && (
           <div className="animate-in fade-in duration-200">
             <LogPriceModal
               isOpen={true}
@@ -515,7 +551,7 @@ export default function App() {
         )}
 
         {/* Tab 7: Market History & Trends */}
-        {appMode === 'advanced' && activeTab === 'history' && (
+        {unlocked && appMode === 'advanced' && activeTab === 'history' && (
           <div className="space-y-6 animate-in fade-in duration-200">
             <PriceTrendChart records={records} />
             <PriceHistoryTable records={records} onDeleteRecord={handleDeleteRecord} />

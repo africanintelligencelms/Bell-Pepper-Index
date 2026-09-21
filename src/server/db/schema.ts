@@ -4,7 +4,7 @@
  * runtime, where a sibling .sql file is not guaranteed to be present on disk.
  */
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (

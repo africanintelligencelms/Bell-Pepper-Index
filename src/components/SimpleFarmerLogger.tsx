@@ -19,6 +19,12 @@ interface SimpleFarmerLoggerProps {
   records: PriceRecord[];
   /** Server-computed going rate. Undefined until the API answers. */
   marketRate?: MarketRateResponse;
+  /** Sales logged on this device, and whether that has opened the extra tools. */
+  contributions: number;
+  unlocked: boolean;
+  /** Where this farmer sells — decides which hub's floor they are shown. */
+  farmerLocation: string;
+  onLocationChange: (location: string) => void;
   onAddPrice: (entry: {
     type: PepperType;
     pricePerKg: number;
@@ -46,6 +52,10 @@ const COMMON_LOCATIONS = [
 export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
   records,
   marketRate,
+  contributions,
+  unlocked,
+  farmerLocation,
+  onLocationChange,
   onAddPrice,
   onOpenOfftakers,
   onOpenAdvanced,
@@ -53,9 +63,15 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
 }) => {
   // Form State
   const [variety, setVariety] = useState<PepperType>('green');
-  const [pricePerKg, setPricePerKg] = useState<number | ''>(4500);
+  // Left empty until the live floor arrives. A hardcoded starting price is
+  // how the form previously suggested ₦4,500 while the agreed floor sat at
+  // ₦2,250 — a prefill that is wrong is worse than no prefill.
+  const [pricePerKg, setPricePerKg] = useState<number | ''>('');
+  const [priceTouched, setPriceTouched] = useState(false);
   const [quantityKg, setQuantityKg] = useState<number | ''>(50);
-  const [location, setLocation] = useState('Jos, Plateau State');
+  // Lifted to App: changing it must also change which floor is displayed.
+  const location = farmerLocation;
+  const setLocation = onLocationChange;
   const [customLocation, setCustomLocation] = useState('');
   const [farmerName, setFarmerName] = useState(() => localStorage.getItem('farmer_name') || '');
   const [farmerPhone, setFarmerPhone] = useState(() => localStorage.getItem('farmer_phone') || '');
@@ -77,14 +93,26 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
   // the rule; this component only renders what it returns.
 
   // When variety changes, suggest realistic starter price
+  const bandTargetFor = (v: PepperType): number | undefined =>
+    (v === 'coloured' ? marketRate?.coloured : marketRate?.green)?.band?.target;
+
   const handleSelectVariety = (v: PepperType) => {
     setVariety(v);
-    if (v === 'coloured') {
-      setPricePerKg(7000);
-    } else {
-      setPricePerKg(4500);
+    // Re-suggest for the newly chosen variety unless the farmer has typed
+    // their own figure, which always wins.
+    if (!priceTouched) {
+      const target = bandTargetFor(v);
+      if (target) setPricePerKg(target);
     }
   };
+
+  // Suggest the agreed target once the live floor loads, so the field is not
+  // empty on arrival but never shows a figure from a stale market.
+  useEffect(() => {
+    if (priceTouched || pricePerKg !== '') return;
+    const target = bandTargetFor(variety);
+    if (target) setPricePerKg(target);
+  }, [marketRate, variety, priceTouched, pricePerKg]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,6 +153,8 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
     setIsSubmitting(false);
     setTransactionType(null);
     setShowTypeError(false);
+    setPriceTouched(false);
+    setPricePerKg('');
     setJustSubmitted(true);
     setTimeout(() => setJustSubmitted(false), 5000);
   };
@@ -168,8 +198,18 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
     </div>
   );
 
-  const colouredPriceOptions = [6000, 6500, 7000, 7500, 8000];
-  const greenPriceOptions = [3500, 4000, 4500, 5000, 5500];
+  /**
+   * Quick-tap prices are built around the agreed floor rather than fixed
+   * numbers, so they move when the association moves the floor. The lowest
+   * option is the floor itself — never below it, because offering a
+   * one-tap below-floor price would undercut the thing the app is for.
+   */
+  const priceOptionsFor = (v: PepperType): number[] => {
+    const band = (v === 'coloured' ? marketRate?.coloured : marketRate?.green)?.band;
+    if (!band) return v === 'coloured' ? [3500, 3850, 4200, 4500, 5000] : [2000, 2250, 2500, 2750, 3000];
+    const step = Math.max(Math.round((band.max - band.min) / 2), 50);
+    return [band.min, band.target, band.max, band.max + step, band.max + step * 2];
+  };
   const quantityOptions = [30, 50, 100, 200, 500];
 
   return (
@@ -326,9 +366,10 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
 
           {/* Step 2: Price per KG */}
           <div className="space-y-2.5">
-            <div className="flex items-center justify-between">
+            {/* Stacks on a phone: side by side these two collide at 390px. */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
               <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                4. Price per kg (in Naira):
+                4. Price per kg (in Naira)
               </label>
               <span className="text-xs text-emerald-700 font-bold">
                 {(() => {
@@ -344,20 +385,61 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
                 type="number"
                 required
                 value={pricePerKg}
-                onChange={e => setPricePerKg(e.target.value === '' ? '' : Number(e.target.value))}
-                placeholder="e.g. 4500"
+                onChange={e => {
+                  setPriceTouched(true);
+                  setPricePerKg(e.target.value === '' ? '' : Number(e.target.value));
+                }}
+                placeholder="Enter price"
                 className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl pl-10 pr-4 py-3 text-2xl font-black text-slate-900 focus:outline-none focus:border-emerald-600 focus:bg-white transition"
               />
             </div>
 
+            {/* The whole point of the app, delivered at the moment it matters:
+                a farmer typing a number is deciding whether to accept an offer,
+                and this is where they find out it is under the agreed floor. */}
+            {(() => {
+              const rate = variety === 'coloured' ? marketRate?.coloured : marketRate?.green;
+              const floor = rate?.band?.min;
+              const entered = Number(pricePerKg);
+              if (!floor || !entered || entered <= 0) return null;
+
+              if (entered < floor) {
+                const short = floor - entered;
+                return (
+                  <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-3.5 space-y-1">
+                    <p className="font-extrabold text-rose-900 text-sm">
+                      ₦{short.toLocaleString()}/kg below our agreed floor
+                    </p>
+                    <p className="text-xs text-rose-800 leading-relaxed">
+                      The group agreed ₦{floor.toLocaleString()}/kg as the lowest fair price.
+                      You can still log this — but you can also tell the buyer the floor and
+                      wait. Greenhouse peppers keep for 14-21 days.
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-700 shrink-0 stroke-[3]" />
+                  <p className="text-xs text-emerald-900 font-semibold">
+                    At or above the agreed floor of ₦{floor.toLocaleString()}/kg.
+                  </p>
+                </div>
+              );
+            })()}
+
             {/* Quick Tap Price Pills */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
               <span className="text-[11px] text-slate-400 font-semibold shrink-0">Quick tap:</span>
-              {(variety === 'coloured' ? colouredPriceOptions : greenPriceOptions).map(p => (
+              {priceOptionsFor(variety).map(p => (
                 <button
                   key={p}
                   type="button"
-                  onClick={() => setPricePerKg(p)}
+                  onClick={() => {
+                    setPriceTouched(true);
+                    setPricePerKg(p);
+                  }}
                   className={`px-3 py-1 rounded-xl text-xs font-bold transition shrink-0 ${
                     pricePerKg === p
                       ? 'bg-slate-900 text-white'
@@ -504,18 +586,33 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
 
       {/* Today's Market Rate Summary Banner */}
       <div className="bg-slate-900 text-white rounded-3xl p-5 shadow-sm space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-5 h-5 text-emerald-400" />
-            <span className="font-bold text-sm text-white">Today's Going Rates</span>
+        <div className="border-b border-slate-800 pb-3 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-5 h-5 text-emerald-400" />
+              <span className="font-bold text-sm text-white">Today's Going Rates</span>
+            </div>
+            {/* Naming the hub matters: these figures differ by up to ₦450/kg of
+                freight, so a farmer has to be able to see the floor is theirs. */}
+            {marketRate?.hub && (
+              <span className="text-[11px] text-emerald-300 font-semibold flex items-center gap-1 shrink-0">
+                <MapPin className="w-3 h-3" />
+                <span>{marketRate.hub.split(' (')[0]}</span>
+              </span>
+            )}
           </div>
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-slate-400 block">
             {marketRate
               ? marketRate.green.sufficient || marketRate.coloured.sufficient
                 ? `Median of greenhouse sales, last ${Math.max(marketRate.green.windowDays, marketRate.coloured.windowDays)} days`
-                : 'Association agreed rates'
+                : 'Association agreed floor — no recent sales logged yet'
               : 'Loading live rates…'}
           </span>
+          {marketRate?.hub && (
+            <span className="text-[11px] text-slate-500 block">
+              Showing prices for {location}. Change your location above to see another hub.
+            </span>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -529,7 +626,7 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
           className="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs py-3 px-4 rounded-xl transition flex items-center justify-center gap-2"
         >
           <MessageCircle className="w-4 h-4 fill-slate-950" />
-          <span>Post Today's Rates to WhatsApp Group</span>
+          <span>Send Floor Price to WhatsApp Group</span>
         </button>
       </div>
 
@@ -560,15 +657,50 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
         )}
       </div>
 
-      {/* Advanced Tools Link for Group Admins or Detailed Analysis */}
+      {/* Extra tools are earned by logging sales rather than requested and
+          waited for. Framed as progress towards something, not a locked door. */}
       {onOpenAdvanced && (
-        <div className="text-center pt-2">
-          <button
-            onClick={onOpenAdvanced}
-            className="text-xs text-slate-500 hover:text-slate-800 font-semibold underline decoration-slate-300 underline-offset-4 transition"
-          >
-            Need AI Chat Extractor, History Charts, or COP Calculator? Switch to Advanced Tools →
-          </button>
+        <div className="pt-1">
+          {unlocked ? (
+            <div className="text-center">
+              <button
+                onClick={onOpenAdvanced}
+                className="text-xs text-slate-500 hover:text-slate-800 font-semibold underline decoration-slate-300 underline-offset-4 transition"
+              >
+                Open price history, cost calculator and the WhatsApp chat reader →
+              </button>
+            </div>
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-sm text-slate-900">
+                  Unlock the extra tools
+                </span>
+                <span className="text-xs font-bold text-emerald-700 shrink-0">
+                  {contributions} of 3 sales
+                </span>
+              </div>
+
+              {/* Three blocks rather than a percentage bar: countable at a glance. */}
+              <div className="flex gap-1.5" aria-hidden="true">
+                {[0, 1, 2].map(i => (
+                  <span
+                    key={i}
+                    className={`h-2 flex-1 rounded-full ${
+                      i < contributions ? 'bg-emerald-500' : 'bg-slate-200'
+                    }`}
+                  />
+                ))}
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Log {3 - contributions} more {3 - contributions === 1 ? 'sale' : 'sales'} to open price
+                history charts, the cost-of-production calculator and the WhatsApp chat reader.
+                The index is built from what members log — so the tools open once you have added
+                to it.
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>

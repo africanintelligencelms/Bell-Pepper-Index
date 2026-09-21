@@ -20,6 +20,9 @@ interface NavbarProps {
   setActiveTab: (tab: ActiveTab) => void;
   appMode: 'simple' | 'advanced';
   setAppMode: (mode: 'simple' | 'advanced') => void;
+  /** Advanced tools are earned by logging sales; see lib/contribution.ts. */
+  unlocked: boolean;
+  contributions: number;
   onOpenBroadcastModal: () => void;
   onResetData: () => void;
   isResetting: boolean;
@@ -31,6 +34,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   appMode,
   setAppMode,
+  unlocked,
+  contributions,
   onOpenBroadcastModal,
   onResetData,
   isResetting,
@@ -83,20 +88,22 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <MessageSquare className="w-4 h-4" />
             </button>
-            <button
-              onClick={() => {
-                if (appMode === 'simple') {
-                  setAppMode('advanced');
-                  setActiveTab('live');
-                } else {
-                  setAppMode('simple');
-                  setActiveTab('simple_logger');
-                }
-              }}
-              className="px-2.5 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold border border-slate-200"
-            >
-              {appMode === 'simple' ? 'More Tools' : 'Farmer Mode'}
-            </button>
+            {unlocked && (
+              <button
+                onClick={() => {
+                  if (appMode === 'simple') {
+                    setAppMode('advanced');
+                    setActiveTab('live');
+                  } else {
+                    setAppMode('simple');
+                    setActiveTab('simple_logger');
+                  }
+                }}
+                className="px-2.5 py-1.5 bg-slate-100 text-slate-700 rounded-xl text-xs font-bold border border-slate-200"
+              >
+                {appMode === 'simple' ? 'More Tools' : 'Farmer Mode'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -200,23 +207,33 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>Buyer Contacts</span>
             </button>
 
-            <button
-              onClick={() => {
-                setAppMode('advanced');
-                setActiveTab('live');
-              }}
-              className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl font-bold transition flex items-center gap-1.5"
-            >
-              <TrendingUp className="w-3.5 h-3.5 text-purple-600" />
-              <span>More Tools</span>
-            </button>
+            {unlocked ? (
+              <button
+                onClick={() => {
+                  setAppMode('advanced');
+                  setActiveTab('live');
+                }}
+                className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl font-bold transition flex items-center gap-1.5"
+              >
+                <TrendingUp className="w-3.5 h-3.5 text-purple-600" />
+                <span>More Tools</span>
+              </button>
+            ) : (
+              <span
+                className="text-xs bg-slate-50 text-slate-500 px-3 py-2 rounded-xl font-semibold border border-slate-200 flex items-center gap-1.5"
+                title="Log three sales to open the history charts, cost calculator and AI chat reader."
+              >
+                <TrendingUp className="w-3.5 h-3.5 text-slate-400" />
+                <span>More Tools · {contributions}/3</span>
+              </span>
+            )}
 
             <button
               onClick={onOpenBroadcastModal}
               className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
             >
               <MessageSquare className="w-4 h-4" />
-              <span>Share Rates</span>
+              <span>Share Floor Price</span>
             </button>
           </div>
         )}
@@ -229,7 +246,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-xs"
             >
               <MessageSquare className="w-4 h-4" />
-              <span>Share to WhatsApp</span>
+              <span>Share Floor Price</span>
             </button>
 
             <button
