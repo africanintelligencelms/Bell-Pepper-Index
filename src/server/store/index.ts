@@ -133,4 +133,9 @@ export const store = {
     }
     return memoryStore.consumeRateLimit(bucketKey, limit, windowMs);
   },
+
+  async listRateSamples(type: string, sinceDate: string) {
+    if (await ready()) return priceRepo.listRateSamples(type, sinceDate);
+    return memoryStore.listRateSamples(type, sinceDate);
+  },
 };

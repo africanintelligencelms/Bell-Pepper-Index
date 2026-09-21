@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PriceRecord, WhatsAppParsedEntry, PepperType, TransactionType, ProductionMethod, QualityGrade, UnifiedPriceBand, CostBreakdownItem, OfftakerContact } from './types';
+import { PriceRecord, WhatsAppParsedEntry, PepperType, TransactionType, ProductionMethod, QualityGrade, UnifiedPriceBand, CostBreakdownItem, OfftakerContact, MarketRateResponse } from './types';
 import { Navbar, ActiveTab } from './components/Navbar';
 import { PriceOverviewHero } from './components/PriceOverviewHero';
 import { MarketIntelligencePanel } from './components/MarketIntelligencePanel';
@@ -23,6 +23,7 @@ export default function App() {
   const [priceBands, setPriceBands] = useState<UnifiedPriceBand[] | undefined>(undefined);
   const [copItems, setCopItems] = useState<CostBreakdownItem[] | undefined>(undefined);
   const [offtakers, setOfftakers] = useState<OfftakerContact[] | undefined>(undefined);
+  const [marketRate, setMarketRate] = useState<MarketRateResponse | undefined>(undefined);
   const [isLoading, setIsLoading] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -91,9 +92,22 @@ export default function App() {
     }
   };
 
+  // The going rate is computed server-side so there is one definition of it,
+  // and so a phone fetches two numbers rather than the whole index.
+  const fetchMarketRate = async () => {
+    try {
+      const res = await fetch('/api/market-rate');
+      const json = await res.json();
+      if (json.success && json.data) setMarketRate(json.data);
+    } catch (err) {
+      console.warn('Market rate unavailable:', err);
+    }
+  };
+
   useEffect(() => {
     fetchPrices();
     fetchMarketConfig();
+    fetchMarketRate();
   }, []);
 
   // Handle single manual price submission
@@ -124,6 +138,8 @@ export default function App() {
       if (json.success && json.data) {
         setRecords(prev => [json.data, ...prev]);
         showToast(`Logged ₦${newEntry.pricePerKg.toLocaleString()}/kg for ${newEntry.type} pepper!`);
+        // A new sale can change the median, the window or the sample count.
+        void fetchMarketRate();
       } else {
         throw new Error(json.error || 'Failed to submit price');
       }
@@ -292,6 +308,7 @@ export default function App() {
           <div className="animate-in fade-in duration-200">
             <SimpleFarmerLogger
               records={records}
+              marketRate={marketRate}
               onAddPrice={handleAddPrice}
               onOpenOfftakers={() => {
                 setAppMode('advanced');
@@ -550,6 +567,7 @@ export default function App() {
           isOpen={isBroadcastModalOpen}
           onClose={() => setIsBroadcastModalOpen(false)}
           records={records}
+          marketRate={marketRate}
         />
       )}
     </div>

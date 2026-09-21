@@ -19,7 +19,8 @@ buyer just offered is fair.
 | `npm run start` | Runs the bundled self-hosted server. |
 | `npm run db:migrate` | Applies the schema and seeds reference data. |
 | `npm run check:secrets` | Fails if a secret reached `dist/`. Runs automatically as part of both builds. |
-| `npm run lint` | `tsc --noEmit`. There is no test suite yet. |
+| `npm test` | Runs the going-rate tests (`scripts/test-market-rate.ts`). No test runner to install. |
+| `npm run lint` | `tsc --noEmit`. |
 
 ## Architecture
 
@@ -54,6 +55,41 @@ extensions or resolve directories. Omitting them builds and typechecks cleanly, 
 files cleanly, and then fails at the first invocation with `ERR_MODULE_NOT_FOUND`, which the
 platform surfaces only as `FUNCTION_INVOCATION_FAILED`. Write `.js` even though the file on disk
 is `.ts` — Vite, tsx and esbuild all resolve it back to the TypeScript source.
+
+### The published going rate
+
+`GET /api/market-rate` owns the headline figure. It is the **median** of
+**greenhouse `actual_sale`** records for a variety over a **rolling 14-day window**,
+widening to 30 then 90 days when fewer than three sales qualify, and falling back to the
+association's agreed target when none of those windows clears the minimum. The response always
+carries `basis`, `sampleSize` and `windowDays` so the UI can show what stands behind the number.
+
+Every part of that rule is load-bearing:
+
+- **Greenhouse actual sales only.** A buyer's offer is what someone wants to pay; an asking
+  price is what someone hopes to get. Blending them — and blending open-field produce, a
+  different market — is how the index ends up publishing the lowball figure it exists to argue
+  against. Before this endpoint the card showed a plain mean of every record ever logged, which
+  put an open-field ₦3,000 buyer offer inside the published greenhouse rate.
+- **Median, not mean.** One mistyped price moves a mean enormously. With ten green records
+  including a ₦99,000 typo, the old mean published ₦13,580; the median published ₦4,650.
+- **`low`/`high` are the 25th–75th percentile, not min/max.** The median resists an outlier but
+  a raw range does not, and that range goes into the WhatsApp broadcast.
+- **A minimum sample.** Below three sales the median is noise, and a farmer will quote it to a
+  buyer. It says so instead.
+
+**The logger must ask, never assume.** `SimpleFarmerLogger` used to hardcode
+`transactionType: 'actual_sale'` and `productionMethod: 'greenhouse'` on every submission, so a
+buyer's lowball offer was stored as a confirmed greenhouse sale and counted towards the rate
+farmers quote back at that same buyer. Both are now explicit questions. Transaction type has
+**no default** on purpose: a pre-selected "I sold it" that is almost always accepted is the same
+as a hardcoded value. Growing method defaults to greenhouse, which is honest for a greenhouse
+farmers' network, but is visible and one tap to change.
+
+**Compute the rate in exactly one place.** `SimpleFarmerLogger` and `WhatsAppBroadcastCard` both
+render this endpoint's response. The broadcast is the app's most public artefact — it gets pasted
+into the group — so it must never derive its own average. `PriceOverviewHero`, `PriceTrendChart`
+and the `predict-price` fallback still compute their own means and have not been migrated.
 
 ### The store seam
 
@@ -117,6 +153,16 @@ configuration-changing writes require the `x-admin-token` header.
 | `POST` | `/api/parse-whatsapp` | public — Gemini extraction, rate limited |
 | `POST` | `/api/predict-price` | public — Gemini, deterministic fallback, rate limited |
 
+`GET /api/prices` **omits `farmerPhone` unless a valid admin token is present.** Farmers give a
+number so the group can follow up on a quote, not so it can be published; the endpoint is public
+and unauthenticated, so returning it would hand every contributor's contact details to any
+caller. The number is still stored — verifying a suspicious submission means being able to ring
+the person — it is only withheld from public reads. `hasValidAdminToken` is the non-throwing
+check used for this; an invalid token falls back to the public shape rather than 401, since the
+endpoint genuinely serves everyone.
+
+The offtaker directory is the deliberate exception: those phone numbers exist to be shared.
+
 `requireAdmin` **fails closed**: with `ADMIN_TOKEN` unset it returns 503 rather than allowing
 everything. The token is compared with `timingSafeEqual`.
 
@@ -140,11 +186,29 @@ submitter before they submit so the tag is not a surprise.
 Un-verifying is supported deliberately: a buyer who stops paying must be demotable without
 deleting the record and losing the history.
 
-### Rate limiting the AI endpoints
+### Rate limiting the public endpoints
 
-`/api/parse-whatsapp` and `/api/predict-price` are public and every call spends Gemini quota.
-Anyone who finds the URL can drain the project's allowance — in practice a larger risk than key
-leakage, since the key never leaves the server.
+Two different risks share one limiter.
+
+`/api/parse-whatsapp` and `/api/predict-price` are capped because every call spends Gemini
+quota, and anyone who finds the URL can drain the project's allowance — in practice a larger
+risk than key leakage, since the key never leaves the server.
+
+`POST /api/prices`, `/api/prices/bulk` and `/api/offtakers` are capped because the index is the
+argument a farmer makes to a buyer. Submission is deliberately unauthenticated so contributing
+stays frictionless, which is also the attack: a buyer submits a stream of low sales and drags
+the published median down. Bulk is capped hardest (5/hour) because one request carries up to
+500 records, making it the efficient way to flood rather than the convenient way to contribute.
+
+**The limits are loose on purpose.** Nigerian mobile networks put many subscribers behind one
+public address, and farmers in a co-op may share a connection, so a per-IP cap tight enough to
+stop a determined flood would also lock out a village. They are set to stop bulk automation
+without being reachable by a group of people logging real sales. A valid `ADMIN_TOKEN` bypasses
+them entirely — an admin importing a season of WhatsApp history is doing the work the limit
+protects, not the abuse it stops.
+
+Each endpoint gets its own bucket, so exhausting one never blocks another. Reads are never
+limited.
 
 The limiter is a fixed-window counter in Postgres (`ai_rate_limits`), **not** in process
 memory. Each serverless instance has its own memory, so an in-process limiter would be bypassed
@@ -255,8 +319,11 @@ without the first the app is non-persistent, without the second all admin action
 
 ## Known gaps
 
-- **No test suite.** `npm run lint` is typecheck only. Verification so far has been manual
-  against a real Postgres.
+- **Test coverage is limited to the going rate.** `npm test` covers `src/server/marketRate.ts`
+  (22 assertions). Everything else is verified by hand against a real Postgres.
+- **Three components still compute their own averages** — `PriceOverviewHero`,
+  `PriceTrendChart` and the `predict-price` deterministic fallback — using the plain unfiltered
+  mean that `/api/market-rate` replaced. They will disagree with the headline figure.
 - **`/api/predict-price` calls Gemini on every records-count change**, with no caching.
   Deferred to a future release; the design is sketched in a `TODO(next release)` block above the
   route in `src/server/routes/ai.ts`. Rate limiting caps the damage in the meantime but does not

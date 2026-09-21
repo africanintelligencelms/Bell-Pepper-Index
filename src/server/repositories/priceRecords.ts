@@ -115,3 +115,25 @@ export async function deletePriceRecord(id: string): Promise<boolean> {
   const { rowCount } = await query('DELETE FROM price_records WHERE id = $1', [id]);
   return (rowCount ?? 0) > 0;
 }
+
+/**
+ * Samples behind the published going rate: greenhouse produce that actually
+ * sold, for one variety, no older than `sinceDate`. Filtering in SQL keeps the
+ * payload to the handful of rows the median needs rather than the whole index.
+ */
+export async function listRateSamples(
+  type: string,
+  sinceDate: string,
+): Promise<{ pricePerKg: number; date: string }[]> {
+  const { rows } = await query<{ price_per_kg: string; recorded_on: string }>(
+    `SELECT price_per_kg, recorded_on
+     FROM price_records
+     WHERE type = $1
+       AND production_method = 'greenhouse'
+       AND transaction_type = 'actual_sale'
+       AND recorded_on >= $2
+     ORDER BY recorded_on DESC`,
+    [type, sinceDate],
+  );
+  return rows.map((r) => ({ pricePerKg: Number(r.price_per_kg), date: r.recorded_on }));
+}

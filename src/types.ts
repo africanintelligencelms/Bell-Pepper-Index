@@ -105,3 +105,25 @@ export interface MarketFilter {
   transactionType: 'all' | 'actual_sale' | 'buyer_offer' | 'farmer_asking';
   timeFrameDays: number; // 7, 14, 30, 90
 }
+
+/** One variety's published going rate, as computed by GET /api/market-rate. */
+export interface MarketRate {
+  type: PepperType;
+  pricePerKg: number;
+  basis: 'community_median' | 'association_band';
+  sufficient: boolean;
+  sampleSize: number;
+  windowDays: number;
+  low: number | null;
+  high: number | null;
+  band: { min: number; target: number; max: number } | null;
+  withinBand: boolean | null;
+  note: string;
+}
+
+export interface MarketRateResponse {
+  hub: string | null;
+  green: MarketRate;
+  coloured: MarketRate;
+  generatedAt: string;
+}

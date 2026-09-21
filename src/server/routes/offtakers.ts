@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { asyncHandler, notFound } from '../http.js';
 import { requireAdmin } from '../middleware/adminAuth.js';
+import { OFFTAKER_SUBMIT_LIMIT, rateLimit } from '../middleware/rateLimit.js';
 import { store } from '../store/index.js';
 import { parseOfftaker } from '../validation.js';
 
@@ -21,6 +22,7 @@ offtakersRouter.get(
  */
 offtakersRouter.post(
   '/offtakers',
+  rateLimit('submit-offtaker', OFFTAKER_SUBMIT_LIMIT),
   asyncHandler(async (req, res) => {
     const offtaker = parseOfftaker(req.body);
     const saved = await store.insertOfftaker(offtaker);
