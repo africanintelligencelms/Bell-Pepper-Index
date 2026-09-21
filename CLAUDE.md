@@ -129,6 +129,13 @@ log, so the thing the app needs is the thing that unlocks it, and because an app
 would mean farmers waiting on an administrator. **The offtaker directory never locks**: a
 farmer with a perishable harvest needs a buyer's number today.
 
+Gating the tab *contents* is not enough — the navigation has to be gated too. Because the
+directory is open, a farmer can be in advanced mode without having unlocked anything, and the
+full tab bar there offered six tabs that silently bounced back to the logger. A locked farmer
+now sees one `More Tools · N/3` chip instead. **Nothing locked is ever a dead end:** tapping it
+returns them to the logger with a banner naming the tool and their progress, because a tap that
+appears to do nothing reads as a broken app rather than an invitation.
+
 ### The store seam
 
 Routes never branch on storage. They call `store` (`src/server/store/index.ts`), which

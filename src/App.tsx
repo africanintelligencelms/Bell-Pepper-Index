@@ -41,6 +41,9 @@ export default function App() {
     }
   });
   const unlocked = hasUnlockedTools(contributions);
+  // Set when a farmer reaches for a locked tool, so the logger can explain why
+  // they were sent back rather than appearing to ignore the tap.
+  const [lockedNotice, setLockedNotice] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isResetting, setIsResetting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -130,6 +133,18 @@ export default function App() {
     void fetchMarketRate(farmerLocation);
   }, [farmerLocation]);
 
+  /**
+   * A locked tool never opens a dead end. The farmer is returned to the one
+   * screen that changes their situation — the logger — and told what the tool
+   * is and how close they are to it.
+   */
+  const handleLockedAttempt = (toolName: string) => {
+    setAppMode('simple');
+    setActiveTab('simple_logger');
+    setLockedNotice(toolName);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleLocationChange = (location: string) => {
     setFarmerLocation(location);
     try {
@@ -170,6 +185,7 @@ export default function App() {
         // A new sale can change the median, the window or the sample count.
         void fetchMarketRate();
         setContributions(recordContribution());
+        setLockedNotice(null);
       } else {
         throw new Error(json.error || 'Failed to submit price');
       }
@@ -308,6 +324,7 @@ export default function App() {
         setAppMode={setAppMode}
         unlocked={unlocked}
         contributions={contributions}
+        onLockedAttempt={handleLockedAttempt}
         onOpenBroadcastModal={() => setIsBroadcastModalOpen(true)}
         onResetData={handleResetData}
         isResetting={isResetting}
@@ -345,6 +362,7 @@ export default function App() {
               unlocked={unlocked}
               farmerLocation={farmerLocation}
               onLocationChange={handleLocationChange}
+              lockedNotice={lockedNotice}
               onAddPrice={handleAddPrice}
               onOpenOfftakers={() => {
                 setAppMode('advanced');

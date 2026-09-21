@@ -25,6 +25,8 @@ interface SimpleFarmerLoggerProps {
   /** Where this farmer sells — decides which hub's floor they are shown. */
   farmerLocation: string;
   onLocationChange: (location: string) => void;
+  /** Name of a tool the farmer just reached for and has not unlocked. */
+  lockedNotice?: string | null;
   onAddPrice: (entry: {
     type: PepperType;
     pricePerKg: number;
@@ -56,6 +58,7 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
   unlocked,
   farmerLocation,
   onLocationChange,
+  lockedNotice,
   onAddPrice,
   onOpenOfftakers,
   onOpenAdvanced,
@@ -214,6 +217,31 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
 
   return (
     <div className="max-w-xl mx-auto space-y-6">
+      {/* Why the farmer is suddenly back here. Phrased as one step away from
+          the thing they wanted, not as a refusal. */}
+      {lockedNotice && !unlocked && (
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 space-y-2">
+          <p className="font-extrabold text-amber-900 text-sm">
+            {lockedNotice}: available after 3 logged prices
+          </p>
+          <div className="flex gap-1.5" aria-hidden="true">
+            {[0, 1, 2].map(i => (
+              <span
+                key={i}
+                className={`h-2 flex-1 rounded-full ${
+                  i < contributions ? 'bg-amber-500' : 'bg-amber-200'
+                }`}
+              />
+            ))}
+          </div>
+          <p className="text-xs text-amber-900 leading-relaxed">
+            You have logged {contributions} of 3. Add {3 - contributions} more{' '}
+            {3 - contributions === 1 ? 'price' : 'prices'} below and it opens straight away.
+            The index is built from what members log, so the tools follow the contribution.
+          </p>
+        </div>
+      )}
+
       {/* Friendly, Simple Greeting */}
       <div className="text-center space-y-1">
         <h2 className="text-2xl font-black tracking-tight text-slate-900">
