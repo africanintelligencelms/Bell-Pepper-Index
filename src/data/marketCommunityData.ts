@@ -10,7 +10,7 @@ export const DEFAULT_PRICE_BANDS: UnifiedPriceBand[] = [
     greenTarget: 2250,
     greenMax: 2500,
     logisticsFromJosPerKg: 0,
-    notes: 'Primary greenhouse production belt. This is the agreed floor — the number to quote when a buyer opens lower.'
+    notes: 'Primary greenhouse production belt. This is the floor on record — the number to quote when a buyer opens lower.'
   },
   {
     hub: 'Abuja (FCT) Direct Offtake',

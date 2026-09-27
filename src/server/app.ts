@@ -4,7 +4,9 @@ import { aiRouter } from './routes/ai.js';
 import { healthRouter } from './routes/health.js';
 import { marketConfigRouter } from './routes/marketConfig.js';
 import { marketRateRouter } from './routes/marketRate.js';
+import { offerCheckRouter } from './routes/offerCheck.js';
 import { offtakersRouter } from './routes/offtakers.js';
+import { pledgesRouter } from './routes/pledges.js';
 import { pricesRouter } from './routes/prices.js';
 
 /**
@@ -22,6 +24,8 @@ export function createApiApp(): Express {
   app.use('/api', pricesRouter);
   app.use('/api', marketConfigRouter);
   app.use('/api', marketRateRouter);
+  app.use('/api', offerCheckRouter);
+  app.use('/api', pledgesRouter);
   app.use('/api', offtakersRouter);
   app.use('/api', aiRouter);
 

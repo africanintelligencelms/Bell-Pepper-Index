@@ -24,6 +24,8 @@ interface NavbarProps {
   /** Advanced tools are earned by logging sales; see lib/contribution.ts. */
   unlocked: boolean;
   contributions: number;
+  /** Earned once, but no recent sale. Shows a different chip: "20/3" is absurd. */
+  toolsStale?: boolean;
   /** Called when a farmer reaches for a tool they have not unlocked yet. */
   onLockedAttempt: (toolName: string) => void;
   onOpenBroadcastModal: () => void;
@@ -39,6 +41,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setAppMode,
   unlocked,
   contributions,
+  toolsStale,
   onLockedAttempt,
   onOpenBroadcastModal,
   onResetData,
@@ -115,7 +118,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="px-2.5 py-1.5 bg-slate-50 text-slate-500 rounded-xl text-xs font-bold border border-slate-200 flex items-center gap-1"
               >
                 <Lock className="w-3 h-3 text-slate-400" />
-                <span>{contributions}/3</span>
+                <span>{toolsStale ? 'Log a sale' : `${contributions}/3`}</span>
               </button>
             )}
           </div>
@@ -156,10 +159,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               onClick={() => onLockedAttempt('Market tools')}
               className="px-2.5 py-1.5 rounded-lg text-slate-500 hover:bg-slate-200/60 transition flex items-center gap-1.5 whitespace-nowrap"
-              title="Log three sales to open the market dashboard, price history, cost calculator and chat reader."
+              title="Log three sales to open the market dashboard, price history, cost calculator and chat reader. A sale in the last five weeks keeps them open."
             >
               <Lock className="w-3.5 h-3.5 text-slate-400" />
-              <span>More Tools · {contributions}/3</span>
+              <span>More Tools · {toolsStale ? 'log a sale' : `${contributions}/3`}</span>
             </button>
           </div>
         ) : appMode === 'advanced' ? (
@@ -279,7 +282,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 title="Log three sales to open the market dashboard, price history, cost calculator and chat reader."
               >
                 <Lock className="w-3.5 h-3.5 text-slate-400" />
-                <span>More Tools · {contributions}/3</span>
+                <span>More Tools · {toolsStale ? 'log a sale' : `${contributions}/3`}</span>
               </button>
             )}
 

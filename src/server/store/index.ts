@@ -1,9 +1,11 @@
-import { CostBreakdownItem, OfftakerContact, PriceRecord, UnifiedPriceBand } from '../../types.js';
+import { CostBreakdownItem, OfftakerContact, PepperType, PriceRecord, UnifiedPriceBand } from '../../types.js';
 import { isDatabaseConfigured } from '../db/client.js';
 import { ensureSchema, resetToSeed } from '../db/migrate.js';
 import * as priceRepo from '../repositories/priceRecords.js';
 import * as configRepo from '../repositories/marketConfig.js';
 import * as offtakerRepo from '../repositories/offtakers.js';
+import * as offerCheckRepo from '../repositories/offerChecks.js';
+import * as pledgeRepo from '../repositories/pledges.js';
 import * as rateLimitRepo from '../repositories/rateLimits.js';
 import type { RateLimitResult } from '../repositories/rateLimits.js';
 import { memoryStore } from './memoryStore.js';
@@ -137,5 +139,48 @@ export const store = {
   async listRateSamples(type: string, sinceDate: string) {
     if (await ready()) return priceRepo.listRateSamples(type, sinceDate);
     return memoryStore.listRateSamples(type, sinceDate);
+  },
+
+  /**
+   * Fire-and-forget: a counter that cannot be written must never fail the
+   * farmer's request. The same reasoning as the rate limiter failing open —
+   * losing a metric is cheaper than losing the answer they came for.
+   */
+  async recordOfferCheck(input: offerCheckRepo.OfferCheckInput): Promise<void> {
+    try {
+      if (await ready()) {
+        await offerCheckRepo.recordOfferCheck(input);
+        return;
+      }
+    } catch (err) {
+      console.error('Could not record offer check:', err instanceof Error ? err.message : err);
+      return;
+    }
+    await memoryStore.recordOfferCheck(input);
+  },
+
+  async countChecksSince(sinceDate: string): Promise<number> {
+    if (await ready()) return offerCheckRepo.countChecksSince(sinceDate);
+    return memoryStore.countChecksSince(sinceDate);
+  },
+
+  async listRefusedOffers(sinceDate: string) {
+    if (await ready()) return priceRepo.listRefusedOffers(sinceDate);
+    return memoryStore.listRefusedOffers(sinceDate);
+  },
+
+  async upsertPledge(input: pledgeRepo.PledgeInput): Promise<void> {
+    if (await ready()) return pledgeRepo.upsertPledge(input);
+    return memoryStore.upsertPledge(input);
+  },
+
+  async listPledgesForWeek(hub: string, type: PepperType, weekStart: string) {
+    if (await ready()) return pledgeRepo.listPledgesForWeek(hub, type, weekStart);
+    return memoryStore.listPledgesForWeek(hub, type, weekStart);
+  },
+
+  async listPledgesByKey(pledgeKey: string, hub: string, weekStart: string) {
+    if (await ready()) return pledgeRepo.listPledgesByKey(pledgeKey, hub, weekStart);
+    return memoryStore.listPledgesByKey(pledgeKey, hub, weekStart);
   },
 };

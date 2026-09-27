@@ -46,6 +46,20 @@ export const BULK_SUBMIT_LIMIT = positiveInt(process.env.RATE_LIMIT_BULK_PER_HOU
 export const OFFTAKER_SUBMIT_LIMIT = positiveInt(process.env.RATE_LIMIT_OFFTAKER_PER_HOUR, 15);
 
 /**
+ * Checking an offer is the behaviour the app most wants, so this is the loosest
+ * limit here. It writes nothing but a counter, spends no Gemini quota, and a
+ * farmer haggling over several loads may legitimately check a dozen times in an
+ * afternoon. It exists only to stop a script.
+ */
+export const OFFER_CHECK_LIMIT = positiveInt(process.env.RATE_LIMIT_CHECK_PER_HOUR, 120);
+
+/**
+ * A pledge is a once-a-week act per variety, so anything beyond a few an hour
+ * is someone testing how far the published floor can be pushed.
+ */
+export const PLEDGE_LIMIT = positiveInt(process.env.RATE_LIMIT_PLEDGE_PER_HOUR, 20);
+
+/**
  * Resolving the caller behind a proxy.
  *
  * `x-forwarded-for` is client-settable when the app is reached directly, so it

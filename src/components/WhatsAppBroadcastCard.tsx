@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { MarketRate, MarketRateResponse, PriceRecord } from '../types';
+import { MarketRate, MarketRateResponse, OfferCheckSummary, PledgeFloor, PriceRecord } from '../types';
 import { 
   X, 
   Copy, 
@@ -16,13 +16,21 @@ interface WhatsAppBroadcastCardProps {
   records: PriceRecord[];
   /** Same server-computed rate the app shows, so the two cannot disagree. */
   marketRate?: MarketRateResponse;
+  /**
+   * Offers checked and low offers refused this week. This is what gives the
+   * message a reason to be posted again tomorrow: the floor rarely moves, but
+   * the number of members refusing lowballs changes every day, and a broadcast
+   * that never changes stops being read.
+   */
+  offerSummary?: OfferCheckSummary;
 }
 
 export const WhatsAppBroadcastCard: React.FC<WhatsAppBroadcastCardProps> = ({
   isOpen,
   onClose,
   records,
-  marketRate
+  marketRate,
+  offerSummary
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -59,11 +67,50 @@ export const WhatsAppBroadcastCard: React.FC<WhatsAppBroadcastCardProps> = ({
   const floorLine = (rate?: MarketRate, label = 'floor') =>
     rate?.band ? `₦${rate.band.min.toLocaleString()} / kg ${label}` : 'floor not set';
 
+  const greenPledge = marketRate?.greenPledge ?? null;
+  const colouredPledge = marketRate?.colouredPledge ?? null;
+
+  /**
+   * How many members are holding, per variety.
+   *
+   * This is the most important line in the message and it goes above the
+   * median, because refusing a low offer is a coordination problem: a farmer
+   * who reads a price still sells, and a farmer who reads that seventeen
+   * neighbours are refusing that price holds.
+   */
+  const holdingLine = (pledge: PledgeFloor | null, emoji: string, label: string): string | null => {
+    if (!pledge?.sufficient || pledge.floorPerKg === null) return null;
+    return `${emoji} *${label}:* ${pledge.holdingCount} of ${pledge.countedPledges} members holding at ₦${pledge.floorPerKg.toLocaleString()} / kg or above`;
+  };
+
+  const holdingLines = [
+    holdingLine(colouredPledge, '🌶️', 'Coloured'),
+    holdingLine(greenPledge, '🫑', 'Green'),
+  ].filter(Boolean) as string[];
+
+  const pledgesNeeded = greenPledge && !greenPledge.sufficient ? greenPledge : null;
+
+  const holdingBlock = holdingLines.length
+    ? `👥 *MEMBERS HOLDING THE LINE THIS WEEK:*\n${holdingLines.join('\n')}\n_Self-reported by members._\n\n`
+    : pledgesNeeded
+      ? `👥 *PLEDGES THIS WEEK:* ${pledgesNeeded.note}\n\n`
+      : '';
+
+  const refusedBlock =
+    offerSummary && offerSummary.refusedLast7Days > 0
+      ? `🛑 *Members turned down ${offerSummary.refusedLast7Days} ${offerSummary.refusedLast7Days === 1 ? 'offer' : 'offers'} below the floor in the last 7 days.*\n\n`
+      : '';
+
   // The floor leads. It is the number a farmer repeats when a buyer opens low,
   // so it has to be the first thing read in the group — the live median is
   // supporting evidence for it, not the headline.
-  const whatsappText = `📊 *GREENHOUSE PEPPER — AGREED FLOOR PRICE*
-📅 ${todayStr}
+  //
+  // It is no longer called "agreed": the band is admin-set, and one member
+  // setting it is not an association decision. The pledge count above is the
+  // part that carries real weight, because it names how many people are
+  // actually behind the number.
+  const whatsappText = `📊 *GREENHOUSE PEPPER — TODAY'S FLOOR*
+📅 ${todayStr}${marketRate?.hub ? `  •  ${marketRate.hub}` : ''}
 
 🚫 *DO NOT SELL BELOW THESE PRICES:*
 
@@ -71,7 +118,7 @@ export const WhatsAppBroadcastCard: React.FC<WhatsAppBroadcastCardProps> = ({
 🫑 *GREEN:*  ${floorLine(green, 'minimum')}
 
 ────────────────
-📈 *What members actually got:*
+${holdingBlock}${refusedBlock}📈 *What members actually got:*
 • Coloured: ₦${coloured ? coloured.pricePerKg.toLocaleString() : '—'} / kg — ${provenance(coloured)}
 • Green: ₦${green ? green.pricePerKg.toLocaleString() : '—'} / kg — ${provenance(green)}
 ${coloured?.low !== null && coloured?.low !== undefined ? `• Most coloured sales: ${spread(coloured)}\n` : ''}${green?.low !== null && green?.low !== undefined ? `• Most green sales: ${spread(green)}` : ''}
@@ -81,7 +128,7 @@ Open-field pepper is a different crop to ours. Greenhouse peppers have thicker
 walls and last 14-21 days, so we can hold and wait. Nobody has to take the
 first offer.
 
-👉 *Log what you sold for:*
+👉 *Check an offer before you answer, and pledge your minimum:*
 ${appUrl}
 
 _Greenhouse sales only. Buyer offers and open-field prices are excluded._
@@ -109,10 +156,10 @@ _Naija Greenhouse Pepper Index_`;
             </div>
             <div>
               <h3 className="font-bold text-base md:text-lg text-slate-900">
-                Send the Agreed Floor Price
+                Send Today's Floor Price
               </h3>
               <p className="text-xs text-slate-500">
-                The price to quote when a buyer opens low
+                Post this at the same time every day — the habit is what makes it read
               </p>
             </div>
           </div>

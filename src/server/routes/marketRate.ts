@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { PepperType } from '../../types.js';
 import { asyncHandler } from '../http.js';
 import { MAX_WINDOW_DAYS, resolveHub, resolveMarketRate, windowStart } from '../marketRate.js';
+import { currentWeekStart, resolvePledgeFloor } from '../pledgeFloor.js';
 import { store } from '../store/index.js';
 
 export const marketRateRouter = Router();
@@ -34,10 +35,26 @@ marketRateRouter.get(
 
     const since = windowStart(MAX_WINDOW_DAYS);
 
+    const weekStart = currentWeekStart();
+
     const rates = await Promise.all(
       VARIETIES.map(async (type) => {
         const samples = await store.listRateSamples(type, since);
         return resolveMarketRate(type, samples, band, new Date());
+      }),
+    );
+
+    /**
+     * The pledge floor rides along with the rate rather than living behind its
+     * own fetch, because both the logger and the WhatsApp broadcast already
+     * render this one response — which is how the count of members holding the
+     * line reaches the group message without any surface computing it twice.
+     */
+    const pledges = await Promise.all(
+      VARIETIES.map(async (type) => {
+        if (!band) return null;
+        const week = await store.listPledgesForWeek(band.hub, type, weekStart);
+        return resolvePledgeFloor(band.hub, type, week, 0, weekStart);
       }),
     );
 
@@ -47,6 +64,8 @@ marketRateRouter.get(
         hub: band?.hub ?? null,
         green: rates[0],
         coloured: rates[1],
+        greenPledge: pledges[0],
+        colouredPledge: pledges[1],
         generatedAt: new Date().toISOString(),
       },
     });

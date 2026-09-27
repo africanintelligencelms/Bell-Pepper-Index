@@ -1,4 +1,4 @@
-import { CostBreakdownItem, OfftakerContact, PriceRecord, UnifiedPriceBand } from '../../types.js';
+import { CostBreakdownItem, OfftakerContact, PepperType, PriceRecord, UnifiedPriceBand } from '../../types.js';
 import { INITIAL_PRICE_RECORDS } from '../../data/seedPrices.js';
 import { DEFAULT_PRICE_BANDS, INITIAL_COP_BREAKDOWN, VERIFIED_OFFTAKERS } from '../../data/marketCommunityData.js';
 
@@ -16,6 +16,18 @@ let offtakers: OfftakerContact[] = VERIFIED_OFFTAKERS.map((o) => ({ ...o }));
 
 /** Per-process counters. Only meaningful for a single long-lived dev server. */
 const rateLimitHits = new Map<string, number>();
+
+/** Offers checked, and pledges, for a contributor running without Postgres. */
+let offerCheckDates: string[] = [];
+interface MemoryPledge {
+  pledgeKey: string;
+  hub: string;
+  type: PepperType;
+  minPerKg: number;
+  weekStart: string;
+  verified: boolean;
+}
+let pledges: MemoryPledge[] = [];
 
 export const memoryStore = {
   async listPriceRecords(limit = 500, offset = 0): Promise<PriceRecord[]> {
@@ -131,5 +143,44 @@ export const memoryStore = {
           r.date >= sinceDate,
       )
       .map((r) => ({ pricePerKg: r.pricePerKg, date: r.date }));
+  },
+
+  async recordOfferCheck(input: { checkedOn: string }): Promise<void> {
+    offerCheckDates = [input.checkedOn, ...offerCheckDates].slice(0, 5000);
+  },
+
+  async countChecksSince(sinceDate: string): Promise<number> {
+    return offerCheckDates.filter((date) => date >= sinceDate).length;
+  },
+
+  async listRefusedOffers(sinceDate: string) {
+    return priceRecords
+      .filter((r) => r.transactionType === 'buyer_offer' && r.outcome === 'refused' && r.date >= sinceDate)
+      .map((r) => ({ type: r.type as string, pricePerKg: r.pricePerKg, location: r.location }));
+  },
+
+  async upsertPledge(input: Omit<MemoryPledge, 'verified'>): Promise<void> {
+    const index = pledges.findIndex(
+      (p) =>
+        p.pledgeKey === input.pledgeKey &&
+        p.hub === input.hub &&
+        p.type === input.type &&
+        p.weekStart === input.weekStart,
+    );
+    const row: MemoryPledge = { ...input, verified: false };
+    if (index >= 0) pledges[index] = row;
+    else pledges.push(row);
+  },
+
+  async listPledgesForWeek(hub: string, type: PepperType, weekStart: string) {
+    return pledges
+      .filter((p) => p.hub === hub && p.type === type && p.weekStart === weekStart)
+      .map((p) => ({ minPerKg: p.minPerKg, verified: p.verified }));
+  },
+
+  async listPledgesByKey(pledgeKey: string, hub: string, weekStart: string) {
+    return pledges
+      .filter((p) => p.pledgeKey === pledgeKey && p.hub === hub && p.weekStart === weekStart)
+      .map((p) => ({ type: p.type, minPerKg: p.minPerKg }));
   },
 };
