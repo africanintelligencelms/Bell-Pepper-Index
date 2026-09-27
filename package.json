@@ -13,7 +13,8 @@
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
     "check:secrets": "node scripts/check-bundle-secrets.mjs",
-    "test": "tsx scripts/test-market-rate.ts"
+    "test": "tsx scripts/test-market-rate.ts && tsx scripts/test-offer-verdict.ts",
+    "test:api": "tsx scripts/smoke-offer-check.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

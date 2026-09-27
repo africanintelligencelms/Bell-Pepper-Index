@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 import {
   CostBreakdownItem,
+  OfferOutcome,
   OfftakerContact,
   PepperType,
   PriceRecord,
@@ -24,6 +25,7 @@ const TRANSACTION_TYPES: TransactionType[] = ['actual_sale', 'buyer_offer', 'far
 const PRODUCTION_METHODS: ProductionMethod[] = ['greenhouse', 'open_field'];
 const QUALITY_GRADES: QualityGrade[] = ['grade_a', 'grade_b'];
 const SOURCES: PriceRecord['source'][] = ['manual_entry', 'whatsapp_extracted', 'seed_data'];
+const OFFER_OUTCOMES: OfferOutcome[] = ['accepted', 'refused', 'undecided'];
 const BUYER_TYPES: OfftakerContact['buyerType'][] = [
   'hotel_supermarket',
   'wholesale_market',
@@ -114,6 +116,20 @@ export function parsePriceRecord(input: unknown, defaults: PriceRecordDefaults =
   }
   const body = input as Record<string, unknown>;
 
+  const transactionType = oneOf(body.transactionType, TRANSACTION_TYPES, 'transactionType', 'actual_sale');
+
+  // An outcome only means something on a buyer's offer. On a completed sale it
+  // is nonsense, and on an asking price it is not the farmer's to report — so
+  // it is rejected rather than quietly dropped, which would leave a caller
+  // believing it had been stored.
+  let outcome: OfferOutcome | undefined;
+  if (body.outcome !== undefined && body.outcome !== null && body.outcome !== '') {
+    if (transactionType !== 'buyer_offer') {
+      throw new ValidationError('outcome may only be set when transactionType is buyer_offer');
+    }
+    outcome = oneOf(body.outcome, OFFER_OUTCOMES, 'outcome');
+  }
+
   return {
     id: text(body.id, 'id', 100) || newId('rec'),
     type: oneOf(body.type, PEPPER_TYPES, 'type', 'green'),
@@ -121,7 +137,7 @@ export function parsePriceRecord(input: unknown, defaults: PriceRecordDefaults =
     // default — a silent 0 would drag every community average down.
     pricePerKg: requiredNumber(body.pricePerKg, 'pricePerKg', 1, MAX_PRICE_NGN),
     quantityKg: optionalNumber(body.quantityKg, 'quantityKg', 0, MAX_QUANTITY_KG, 50),
-    transactionType: oneOf(body.transactionType, TRANSACTION_TYPES, 'transactionType', 'actual_sale'),
+    transactionType,
     productionMethod: oneOf(body.productionMethod, PRODUCTION_METHODS, 'productionMethod', 'greenhouse'),
     qualityGrade: oneOf(body.qualityGrade, QUALITY_GRADES, 'qualityGrade', 'grade_a'),
     location: text(body.location, 'location', 200, defaults.location ?? 'Jos, Plateau State'),
@@ -131,6 +147,56 @@ export function parsePriceRecord(input: unknown, defaults: PriceRecordDefaults =
     notes: text(body.notes, 'notes', 2000),
     source: defaults.source ?? oneOf(body.source, SOURCES, 'source', 'manual_entry'),
     createdAt: new Date().toISOString(),
+    ...(outcome ? { outcome } : {}),
+  };
+}
+
+export interface OfferCheckRequest {
+  type: PepperType;
+  offerPerKg: number;
+  quantityKg: number;
+  location: string | null;
+}
+
+/**
+ * A buyer's offer, as typed by a farmer mid-negotiation.
+ *
+ * The offer has no default for the same reason a price record's has none: a
+ * check against ₦0 would return a confident verdict about a number nobody
+ * quoted. Quantity does default, because the farmer may not have weighed yet
+ * and the verdict is still useful without it.
+ */
+export function parseOfferCheck(input: unknown): OfferCheckRequest {
+  if (typeof input !== 'object' || input === null) {
+    throw new ValidationError('Request body must be an object');
+  }
+  const body = input as Record<string, unknown>;
+
+  return {
+    type: oneOf(body.type, PEPPER_TYPES, 'type', 'green'),
+    offerPerKg: requiredNumber(body.offerPerKg, 'offerPerKg', 1, MAX_PRICE_NGN),
+    quantityKg: optionalNumber(body.quantityKg, 'quantityKg', 0, MAX_QUANTITY_KG, 50),
+    location: text(body.location, 'location', 200) || null,
+  };
+}
+
+export interface PledgeRequest {
+  type: PepperType;
+  minPerKg: number;
+  location: string | null;
+}
+
+/** What a member says they will refuse below, this week, for their hub. */
+export function parsePledge(input: unknown): PledgeRequest {
+  if (typeof input !== 'object' || input === null) {
+    throw new ValidationError('Request body must be an object');
+  }
+  const body = input as Record<string, unknown>;
+
+  return {
+    type: oneOf(body.type, PEPPER_TYPES, 'type', 'green'),
+    minPerKg: requiredNumber(body.minPerKg, 'minPerKg', 1, MAX_PRICE_NGN),
+    location: text(body.location, 'location', 200) || null,
   };
 }
 

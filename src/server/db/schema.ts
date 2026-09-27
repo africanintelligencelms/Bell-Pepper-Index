@@ -4,7 +4,7 @@
  * runtime, where a sibling .sql file is not guaranteed to be present on disk.
  */
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -98,4 +98,70 @@ CREATE TABLE IF NOT EXISTS ai_rate_limits (
 
 CREATE INDEX IF NOT EXISTS ai_rate_limits_window_idx
   ON ai_rate_limits (window_start);
+
+-- v4: what happened to a buyer's offer.
+--
+-- A record of a lowball offer is only half the story; whether the farmer took
+-- it is the half that matters. 'refused' is what lets the group see that
+-- holding the line actually happens, which is the argument the index exists to
+-- make. NULL on every record that is not an offer, and on offers logged before
+-- this column existed.
+ALTER TABLE price_records
+  ADD COLUMN IF NOT EXISTS outcome TEXT;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'price_records_outcome_check'
+  ) THEN
+    ALTER TABLE price_records
+      ADD CONSTRAINT price_records_outcome_check
+      CHECK (outcome IS NULL OR outcome IN ('accepted', 'refused', 'undecided'));
+  END IF;
+END $$;
+
+-- v4: offers checked, as a bare counter.
+--
+-- Offers checked per week is the one metric that shows the app is being
+-- consulted at the moment a farmer is actually deciding, rather than admired
+-- afterwards. It deliberately carries no identity: it is a count, not a log of
+-- who is negotiating what, and nothing in the app reads it per person.
+CREATE TABLE IF NOT EXISTS offer_checks (
+  id           TEXT PRIMARY KEY,
+  type         TEXT NOT NULL CHECK (type IN ('coloured', 'green')),
+  offer_per_kg NUMERIC(12, 2) NOT NULL CHECK (offer_per_kg >= 0),
+  hub          TEXT NOT NULL DEFAULT '',
+  verdict      TEXT NOT NULL,
+  checked_on   DATE NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS offer_checks_checked_on_idx ON offer_checks (checked_on DESC);
+
+-- v4: what members say they will refuse this week.
+--
+-- This is the opposite mechanism to a floor derived from submissions, and the
+-- difference is the whole point. A floor computed from what buyers *paid*
+-- follows the market down and stops being resistance — which is why
+-- price_bands stays admin-set. A floor computed from what members commit to
+-- *refuse* is resistance by construction. Do not "unify" the two.
+--
+-- pledge_key is an opaque per-device id, not a verified identity, so a pledge
+-- floor is published as self-reported and never as an association decision.
+-- The verified column exists so phone identity can be layered on later without
+-- a second table: the aggregation already separates the two populations.
+CREATE TABLE IF NOT EXISTS price_pledges (
+  pledge_key   TEXT NOT NULL,
+  hub          TEXT NOT NULL,
+  type         TEXT NOT NULL CHECK (type IN ('coloured', 'green')),
+  min_per_kg   NUMERIC(12, 2) NOT NULL CHECK (min_per_kg >= 0),
+  week_start   DATE NOT NULL,
+  verified     BOOLEAN NOT NULL DEFAULT false,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (pledge_key, hub, type, week_start)
+);
+
+CREATE INDEX IF NOT EXISTS price_pledges_week_idx
+  ON price_pledges (week_start DESC, hub, type);
 `;

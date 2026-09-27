@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { MarketRate, MarketRateResponse, PepperType, PriceRecord, ProductionMethod, TransactionType } from '../types';
+import { MarketRate, MarketRateResponse, PepperType, PledgeFloor, PriceRecord, ProductionMethod, TransactionType } from '../types';
+import { COMMON_LOCATIONS } from '../data/locations';
 import { 
   Check, 
   MapPin, 
@@ -27,6 +28,12 @@ interface SimpleFarmerLoggerProps {
   onLocationChange: (location: string) => void;
   /** Name of a tool the farmer just reached for and has not unlocked. */
   lockedNotice?: string | null;
+  /**
+   * True when the tools were earned and have since gone stale. A farmer who has
+   * logged twenty sales must never be told to "log 3 prices" — that reads as the
+   * app having forgotten them, which is worse than the lockout itself.
+   */
+  toolsStale?: boolean;
   onAddPrice: (entry: {
     type: PepperType;
     pricePerKg: number;
@@ -43,14 +50,6 @@ interface SimpleFarmerLoggerProps {
   onShareWhatsApp: () => void;
 }
 
-const COMMON_LOCATIONS = [
-  'Jos, Plateau State',
-  'Abuja (FCT)',
-  'Lagos (Mile 12)',
-  'Kano State',
-  'Other'
-];
-
 export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
   records,
   marketRate,
@@ -59,6 +58,7 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
   farmerLocation,
   onLocationChange,
   lockedNotice,
+  toolsStale,
   onAddPrice,
   onOpenOfftakers,
   onOpenAdvanced,
@@ -67,7 +67,7 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
   // Form State
   const [variety, setVariety] = useState<PepperType>('green');
   // Left empty until the live floor arrives. A hardcoded starting price is
-  // how the form previously suggested ₦4,500 while the agreed floor sat at
+  // how the form previously suggested ₦4,500 while the floor on record sat at
   // ₦2,250 — a prefill that is wrong is worse than no prefill.
   const [pricePerKg, setPricePerKg] = useState<number | ''>('');
   const [priceTouched, setPriceTouched] = useState(false);
@@ -109,7 +109,7 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
     }
   };
 
-  // Suggest the agreed target once the live floor loads, so the field is not
+  // Suggest the band target once the live floor loads, so the field is not
   // empty on arrival but never shows a figure from a stale market.
   useEffect(() => {
     if (priceTouched || pricePerKg !== '') return;
@@ -163,6 +163,30 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
   };
 
 
+  const pledgeFor = (v: PepperType): PledgeFloor | null =>
+    (v === 'coloured' ? marketRate?.colouredPledge : marketRate?.greenPledge) ?? null;
+
+  /**
+   * Who stands behind the floor being shown.
+   *
+   * This used to read "the group agreed", which was not true: the band in
+   * price_bands is set with an admin token, and one member setting it is not an
+   * association decision. A floor a farmer cannot attribute is a floor they
+   * cannot defend in front of a buyer — and the first time someone asks "who
+   * agreed this?" in the group, an overclaim costs the app its credibility.
+   *
+   * So the strongest true statement available is used: the count of members
+   * holding the line when enough have pledged, and an honest "on record"
+   * otherwise.
+   */
+  const floorBacking = (v: PepperType): string => {
+    const pledge = pledgeFor(v);
+    if (pledge?.sufficient && pledge.floorPerKg !== null) {
+      return `${pledge.holdingCount} of ${pledge.countedPledges} members pledged ₦${pledge.floorPerKg.toLocaleString()}/kg or above this week`;
+    }
+    return 'set for this hub by the group admin — not a vote';
+  };
+
   /** Renders one variety's rate, including how much data stands behind it. */
   const RateCard: React.FC<{ rate?: MarketRate; label: string; accent: string }> = ({
     rate,
@@ -180,7 +204,7 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
 
       {rate?.band && (
         <span className="text-[10px] text-slate-400 mt-1 block">
-          Agreed range: ₦{rate.band.min.toLocaleString()} - ₦{rate.band.max.toLocaleString()}
+          Floor on record: ₦{rate.band.min.toLocaleString()} - ₦{rate.band.max.toLocaleString()}
         </span>
       )}
 
@@ -191,19 +215,19 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
         </span>
       )}
 
-      {/* The community rate sitting under the agreed floor is the single most
-          important thing a farmer can know before answering a buyer. */}
+      {/* The community rate sitting under the floor is the single most important
+          thing a farmer can know before answering a buyer. */}
       {rate?.sufficient && rate.withinBand === false && rate.band && rate.pricePerKg < rate.band.min && (
         <span className="text-[10px] text-rose-300 mt-1 block font-semibold">
-          Below the agreed floor of ₦{rate.band.min.toLocaleString()}
+          Below the floor on record (₦{rate.band.min.toLocaleString()})
         </span>
       )}
     </div>
   );
 
   /**
-   * Quick-tap prices are built around the agreed floor rather than fixed
-   * numbers, so they move when the association moves the floor. The lowest
+   * Quick-tap prices are built around the live floor rather than fixed
+   * numbers, so they move when the floor moves. The lowest
    * option is the floor itself — never below it, because offering a
    * one-tap below-floor price would undercut the thing the app is for.
    */
@@ -221,24 +245,42 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
           the thing they wanted, not as a refusal. */}
       {lockedNotice && !unlocked && (
         <div className="bg-amber-50 border-2 border-amber-300 rounded-2xl p-4 space-y-2">
-          <p className="font-extrabold text-amber-900 text-sm">
-            {lockedNotice}: available after 3 logged prices
-          </p>
-          <div className="flex gap-1.5" aria-hidden="true">
-            {[0, 1, 2].map(i => (
-              <span
-                key={i}
-                className={`h-2 flex-1 rounded-full ${
-                  i < contributions ? 'bg-amber-500' : 'bg-amber-200'
-                }`}
-              />
-            ))}
-          </div>
-          <p className="text-xs text-amber-900 leading-relaxed">
-            You have logged {contributions} of 3. Add {3 - contributions} more{' '}
-            {3 - contributions === 1 ? 'price' : 'prices'} below and it opens straight away.
-            The index is built from what members log, so the tools follow the contribution.
-          </p>
+          {toolsStale ? (
+            /* Earned, then gone quiet. The ask is for what the index actually
+               needs — a recent sale — not for a lifetime total they already
+               passed long ago. */
+            <>
+              <p className="font-extrabold text-amber-900 text-sm">
+                {lockedNotice}: log a recent sale to reopen
+              </p>
+              <p className="text-xs text-amber-900 leading-relaxed">
+                You have logged {contributions} prices, but none in the last five weeks. The index
+                is only as good as what is recent, so one sale below opens everything again
+                straight away.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="font-extrabold text-amber-900 text-sm">
+                {lockedNotice}: available after 3 logged prices
+              </p>
+              <div className="flex gap-1.5" aria-hidden="true">
+                {[0, 1, 2].map(i => (
+                  <span
+                    key={i}
+                    className={`h-2 flex-1 rounded-full ${
+                      i < contributions ? 'bg-amber-500' : 'bg-amber-200'
+                    }`}
+                  />
+                ))}
+              </div>
+              <p className="text-xs text-amber-900 leading-relaxed">
+                You have logged {contributions} of 3. Add {3 - contributions} more{' '}
+                {3 - contributions === 1 ? 'price' : 'prices'} below and it opens straight away.
+                The index is built from what members log, so the tools follow the contribution.
+              </p>
+            </>
+          )}
         </div>
       )}
 
@@ -424,7 +466,7 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
 
             {/* The whole point of the app, delivered at the moment it matters:
                 a farmer typing a number is deciding whether to accept an offer,
-                and this is where they find out it is under the agreed floor. */}
+                and this is where they find out it is under the floor. */}
             {(() => {
               const rate = variety === 'coloured' ? marketRate?.coloured : marketRate?.green;
               const floor = rate?.band?.min;
@@ -436,10 +478,10 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
                 return (
                   <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-3.5 space-y-1">
                     <p className="font-extrabold text-rose-900 text-sm">
-                      ₦{short.toLocaleString()}/kg below our agreed floor
+                      ₦{short.toLocaleString()}/kg below the floor for this hub
                     </p>
                     <p className="text-xs text-rose-800 leading-relaxed">
-                      The group agreed ₦{floor.toLocaleString()}/kg as the lowest fair price.
+                      ₦{floor.toLocaleString()}/kg is the floor — {floorBacking(variety)}.
                       You can still log this — but you can also tell the buyer the floor and
                       wait. Greenhouse peppers keep for 14-21 days.
                     </p>
@@ -451,7 +493,7 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
                 <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-700 shrink-0 stroke-[3]" />
                   <p className="text-xs text-emerald-900 font-semibold">
-                    At or above the agreed floor of ₦{floor.toLocaleString()}/kg.
+                    At or above the ₦{floor.toLocaleString()}/kg floor for this hub.
                   </p>
                 </div>
               );
@@ -633,7 +675,7 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
             {marketRate
               ? marketRate.green.sufficient || marketRate.coloured.sufficient
                 ? `Median of greenhouse sales, last ${Math.max(marketRate.green.windowDays, marketRate.coloured.windowDays)} days`
-                : 'Association agreed floor — no recent sales logged yet'
+                : 'Floor on record — no recent sales logged yet'
               : 'Loading live rates…'}
           </span>
           {marketRate?.hub && (
@@ -647,6 +689,34 @@ export const SimpleFarmerLogger: React.FC<SimpleFarmerLoggerProps> = ({
           <RateCard rate={marketRate?.green} label="🫑 Green Pepper" accent="text-emerald-400" />
           <RateCard rate={marketRate?.coloured} label="🌶️ Coloured Pepper" accent="text-amber-400" />
         </div>
+
+        {/* The coordination number, in the place a farmer looks before
+            answering a buyer. A price alone is not a reason to refuse an offer;
+            knowing how many others are refusing it is. */}
+        {(() => {
+          const green = pledgeFor('green');
+          const coloured = pledgeFor('coloured');
+          const holding = [green, coloured].filter(p => p?.sufficient);
+          if (holding.length === 0) return null;
+          return (
+            <div className="bg-slate-800/80 border border-slate-700 rounded-2xl p-3.5 space-y-1">
+              <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 block">
+                Members holding the line this week
+              </span>
+              {green?.sufficient && green.floorPerKg !== null && (
+                <p className="text-[11px] text-slate-300">
+                  🫑 {green.holdingCount} of {green.countedPledges} at ₦{green.floorPerKg.toLocaleString()}/kg or above
+                </p>
+              )}
+              {coloured?.sufficient && coloured.floorPerKg !== null && (
+                <p className="text-[11px] text-slate-300">
+                  🌶️ {coloured.holdingCount} of {coloured.countedPledges} at ₦{coloured.floorPerKg.toLocaleString()}/kg or above
+                </p>
+              )}
+              <p className="text-[10px] text-slate-500 pt-0.5">Self-reported by members, not an association decision.</p>
+            </div>
+          );
+        })()}
 
         {/* Share to WhatsApp Quick Action */}
         <button

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PriceRecord, WhatsAppParsedEntry, PepperType, TransactionType, ProductionMethod, QualityGrade, UnifiedPriceBand, CostBreakdownItem, OfftakerContact, MarketRateResponse } from './types';
+import { PriceRecord, WhatsAppParsedEntry, PepperType, TransactionType, ProductionMethod, QualityGrade, UnifiedPriceBand, CostBreakdownItem, OfftakerContact, MarketRateResponse, OfferCheckSummary, OfferOutcome } from './types';
 import { Navbar, ActiveTab } from './components/Navbar';
 import { PriceOverviewHero } from './components/PriceOverviewHero';
 import { MarketIntelligencePanel } from './components/MarketIntelligencePanel';
@@ -12,9 +12,18 @@ import { UnifiedPriceBandCard } from './components/UnifiedPriceBandCard';
 import { ProductionCostCalculator } from './components/ProductionCostCalculator';
 import { OfftakerDirectory, NewOfftakerInput } from './components/OfftakerDirectory';
 import { SimpleFarmerLogger } from './components/SimpleFarmerLogger';
+import { OfferCheck } from './components/OfferCheck';
+import { PledgeCard } from './components/PledgeCard';
 import { INITIAL_PRICE_RECORDS } from './data/seedPrices';
 import { adminRequest, getAdminToken, promptForAdminToken } from './lib/adminToken';
-import { getContributionCount, hasUnlockedTools, recordContribution } from './lib/contribution';
+import {
+  freeChecksRemaining,
+  getContributionCount,
+  hasUnlockedTools,
+  recordContribution,
+  recordOfferCheck,
+  toolsWentStale,
+} from './lib/contribution';
 import { CheckCircle, Sprout, Sparkles, PlusCircle, BarChart2, Scale, Calculator, Users, ArrowRight } from 'lucide-react';
 
 export default function App() {
@@ -25,6 +34,11 @@ export default function App() {
   const [copItems, setCopItems] = useState<CostBreakdownItem[] | undefined>(undefined);
   const [offtakers, setOfftakers] = useState<OfftakerContact[] | undefined>(undefined);
   const [marketRate, setMarketRate] = useState<MarketRateResponse | undefined>(undefined);
+  // Offers checked and low offers refused this week. Goes into the group
+  // broadcast, which is what gives it a reason to be posted again tomorrow.
+  const [offerSummary, setOfferSummary] = useState<OfferCheckSummary | undefined>(undefined);
+  // Free offer checks left on this device, or null once a sale has been logged.
+  const [freeChecks, setFreeChecks] = useState<number | null>(() => freeChecksRemaining());
   // Sales this device has logged. Advanced tools open at three; the offtaker
   // directory never locks, because a farmer with a harvest to move needs a
   // buyer's number today, not after they have contributed.
@@ -124,9 +138,20 @@ export default function App() {
     }
   };
 
+  const fetchOfferSummary = async () => {
+    try {
+      const res = await fetch('/api/offer-checks/summary');
+      const json = await res.json();
+      if (json.success && json.data) setOfferSummary(json.data as OfferCheckSummary);
+    } catch (err) {
+      console.warn('Offer summary unavailable:', err);
+    }
+  };
+
   useEffect(() => {
     fetchPrices();
     fetchMarketConfig();
+    void fetchOfferSummary();
   }, []);
 
   useEffect(() => {
@@ -154,7 +179,14 @@ export default function App() {
     }
   };
 
-  // Handle single manual price submission
+  /**
+   * Handle a single price submission.
+   *
+   * Returns whether the server confirmed it, so a caller can decide what to
+   * show. The offer checker needs that: telling a farmer their refusal was
+   * recorded when it was not would put a number in the group's refusal count
+   * that nobody can find.
+   */
   const handleAddPrice = async (newEntry: {
     type: PepperType;
     pricePerKg: number;
@@ -166,7 +198,8 @@ export default function App() {
     farmerName: string;
     farmerPhone?: string;
     notes?: string;
-  }) => {
+    outcome?: OfferOutcome;
+  }): Promise<boolean> => {
     try {
       const res = await fetch('/api/prices', {
         method: 'POST',
@@ -182,10 +215,18 @@ export default function App() {
       if (json.success && json.data) {
         setRecords(prev => [json.data, ...prev]);
         showToast(`Logged ₦${newEntry.pricePerKg.toLocaleString()}/kg for ${newEntry.type} pepper!`);
-        // A new sale can change the median, the window or the sample count.
+        // A new sale can change the median, the window or the sample count, and
+        // a refused offer changes the count the group broadcast reports.
         void fetchMarketRate();
-        setContributions(recordContribution());
-        setLockedNotice(null);
+        void fetchOfferSummary();
+        // Only a completed sale is a contribution. Recording an offer — even a
+        // refused one, which is valuable — is not the thing the index runs on,
+        // so it must not buy access to the tools.
+        if (newEntry.transactionType === 'actual_sale') {
+          setContributions(recordContribution());
+          setLockedNotice(null);
+        }
+        setFreeChecks(freeChecksRemaining());
       } else {
         throw new Error(json.error || 'Failed to submit price');
       }
@@ -193,14 +234,32 @@ export default function App() {
       // Never claim a save that did not happen: a farmer who believes their
       // price is in the index will not re-submit it, and the quote is lost.
       showToast(`Could not save: ${err.message || 'the server is unreachable'}. Please try again.`);
-      return;
+      return false;
     }
 
     // If in simple mode, stay on simple logger; otherwise switch to live dashboard
     if (appMode === 'advanced') {
       setActiveTab('live');
     }
+    return true;
   };
+
+  /** Records the outcome of a checked offer as a buyer_offer record. */
+  const handleLogOutcome = async (entry: {
+    type: PepperType;
+    pricePerKg: number;
+    quantityKg: number;
+    location: string;
+    outcome: OfferOutcome;
+  }): Promise<boolean> =>
+    handleAddPrice({
+      ...entry,
+      transactionType: 'buyer_offer',
+      productionMethod: 'greenhouse',
+      qualityGrade: 'grade_a',
+      farmerName: localStorage.getItem('farmer_name') || 'Greenhouse Farmer',
+      farmerPhone: localStorage.getItem('farmer_phone') || undefined,
+    });
 
   // Handle bulk confirm from WhatsApp Extractor
   const handleConfirmExtracted = async (entries: WhatsAppParsedEntry[]) => {
@@ -324,6 +383,7 @@ export default function App() {
         setAppMode={setAppMode}
         unlocked={unlocked}
         contributions={contributions}
+        toolsStale={toolsWentStale(contributions)}
         onLockedAttempt={handleLockedAttempt}
         onOpenBroadcastModal={() => setIsBroadcastModalOpen(true)}
         onResetData={handleResetData}
@@ -354,7 +414,36 @@ export default function App() {
 
         {/* Simple Mode: Clean, Jargon-Free Logger for Farmers & Civil Servants */}
         {(appMode === 'simple' || activeTab === 'simple_logger' || (!unlocked && activeTab !== 'offtakers')) && (
-          <div className="animate-in fade-in duration-200">
+          <div className="animate-in fade-in duration-200 space-y-6">
+            {/* The front door. A farmer arrives mid-negotiation with a buyer's
+                number in their head, not with paperwork to file, so the question
+                the app asks first is the question they actually have. */}
+            <div className="max-w-xl mx-auto space-y-6">
+              <OfferCheck
+                farmerLocation={farmerLocation}
+                onLocationChange={handleLocationChange}
+                freeChecksRemaining={freeChecks}
+                onChecked={() => {
+                  recordOfferCheck();
+                  setFreeChecks(freeChecksRemaining());
+                  void fetchOfferSummary();
+                }}
+                onLogOutcome={handleLogOutcome}
+                onNeedSale={() => {
+                  setLockedNotice('Offer checks');
+                  window.scrollTo({ top: 400, behavior: 'smooth' });
+                }}
+              />
+
+              <PledgeCard
+                farmerLocation={farmerLocation}
+                suggestedFor={type =>
+                  (type === 'coloured' ? marketRate?.coloured : marketRate?.green)?.band?.min
+                }
+                onPledged={() => void fetchMarketRate()}
+              />
+            </div>
+
             <SimpleFarmerLogger
               records={records}
               marketRate={marketRate}
@@ -363,6 +452,7 @@ export default function App() {
               farmerLocation={farmerLocation}
               onLocationChange={handleLocationChange}
               lockedNotice={lockedNotice}
+              toolsStale={toolsWentStale(contributions)}
               onAddPrice={handleAddPrice}
               onOpenOfftakers={() => {
                 setAppMode('advanced');
@@ -622,6 +712,7 @@ export default function App() {
           onClose={() => setIsBroadcastModalOpen(false)}
           records={records}
           marketRate={marketRate}
+          offerSummary={offerSummary}
         />
       )}
     </div>

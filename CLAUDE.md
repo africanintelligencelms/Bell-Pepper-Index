@@ -19,7 +19,8 @@ buyer just offered is fair.
 | `npm run start` | Runs the bundled self-hosted server. |
 | `npm run db:migrate` | Applies the schema and seeds reference data. |
 | `npm run check:secrets` | Fails if a secret reached `dist/`. Runs automatically as part of both builds. |
-| `npm test` | Runs the going-rate tests (`scripts/test-market-rate.ts`). No test runner to install. |
+| `npm test` | Runs the going-rate, offer-verdict and pledge-floor tests. No test runner to install. |
+| `npm run test:api` | End-to-end check of the offer checker and pledges against the real Express app. Binds a port, so it is kept out of `npm test`. |
 | `npm run lint` | `tsc --noEmit`. |
 
 ## Architecture
@@ -91,6 +92,75 @@ render this endpoint's response. The broadcast is the app's most public artefact
 into the group — so it must never derive its own average. `PriceOverviewHero`, `PriceTrendChart`
 and the `predict-price` fallback still compute their own means and have not been migrated.
 
+### The offer check is the front door
+
+`POST /api/check-offer` answers the question a farmer actually has — *a buyer is
+offering me ₦3,000, is that fair?* — and `src/components/OfferCheck.tsx` is the first thing on
+the logger screen.
+
+The app used to open on "log today's price", which asks for a record **after** the sale, at the
+one moment the farmer has nothing left to gain. The moment they need help is mid-negotiation.
+Inverting it puts the ask downstream of value: the verdict is the service, and the record is a
+byproduct of having been useful. It also captures the **buyer-offer distribution**, which was
+previously discarded entirely and is the direct evidence of the lowballing tactic the index
+exists to name.
+
+**Checking writes no price record.** If every check created a `buyer_offer`, the index would
+fill with hypotheticals, idle curiosity and typos — and those would then feed the median farmers
+quote at buyers. The record is written by `POST /api/prices` with an `outcome`, only when the
+farmer says what happened. That tap is both a confirmation that a real buyer really offered this
+and the more valuable datum: `outcome: 'refused'` is the evidence that holding the line works,
+and before this column a refused lowball left no trace anywhere.
+
+`outcome` is rejected unless `transactionType === 'buyer_offer'` — on a completed sale it is
+meaningless, and on an asking price it is not the farmer's to report. It is rejected rather than
+dropped, so a caller never believes something was stored that was not.
+
+`assessOffer` (`src/server/offerVerdict.ts`) is pure and **derives no rate**: it takes the
+figure `/api/market-rate` already published. Below the floor outranks every other verdict,
+including an offer above a median that has itself fallen under the floor. When the rate is
+insufficient it compares against the band only and says so — a median of one or two sales
+presented as "the market" is a number a farmer would quote.
+
+The `buyerReply` names the produce distinction and the shelf life and **never the buyer's
+motives**. It goes to a real person the farmer deals with next season; an accusation wins one
+negotiation and costs the relationship, which is not the app's trade to make.
+
+### The member floor: legitimacy without authority
+
+`price_bands` is admin-set, and the UI used to call it *"the association's agreed floor"*. That
+sentence is only true if an association agreed it. Set from an admin token by one member it is
+one member's opinion in the association's clothes — and the first *"who agreed this?"* in the
+group ends the app's credibility permanently.
+
+Two things now hold instead. **Nothing is labelled "agreed" that was not.** The admin band reads
+"floor on record" and, where it must be attributed, "set for this hub by the group admin — not a
+vote". And `price_pledges` gives the group a way to manufacture the legitimacy itself: each
+member declares the minimum they will accept this week, and `resolvePledgeFloor`
+(`src/server/pledgeFloor.ts`) publishes the **25th percentile** with the count of members
+holding at or above it.
+
+**This is the opposite mechanism to deriving a floor from submissions, and the difference is the
+whole point.** A floor computed from what buyers *paid* follows the market down and stops being
+resistance — which is why `price_bands` stays admin-set. A floor computed from what members
+commit to *refuse* moves the other way. Both are "derived"; they are opposites. Do not unify
+them, and do not "simplify" the pledge floor into an average of recent sales.
+
+Below `MIN_PLEDGES` (5) nothing is published and the app says how many more are needed — the
+same discipline as `MIN_SAMPLE_SIZE`. The percentile rather than the minimum is deliberate: one
+member pledging low, whether from pessimism or because a buyer got to them, must not set the
+number everyone else quotes.
+
+The **count leads the figure**, in the app and in the broadcast. Refusing a lowball is a
+coordination problem, not an information one: a farmer who reads a price still sells, and a
+farmer who reads that seventeen neighbours are refusing that price holds.
+
+`pledge_key` is an opaque per-device id (`src/lib/pledgeKey.ts`), **not a verified identity** —
+one person with several browser profiles can pledge several times. That is why every surface
+labels the figure *self-reported by members, not an association decision*. Phone identity is the
+upgrade path; `resolvePledgeFloor` already takes counted and uncounted pledges separately, so
+verification changes one line in `routes/pledges.ts` rather than the rule.
+
 ### The agreed floor, and who may see what
 
 The association's floor lives in `price_bands` and is **admin-set, never derived**. A floor
@@ -121,12 +191,31 @@ attribute is a floor they cannot quote.
 floor warnings all derive from the live band. The form previously suggested ₦4,500 while the
 agreed floor was ₦2,250; a prefill that is wrong is worse than no prefill.
 
-**Advanced tools are earned, not requested.** `src/lib/contribution.ts` counts sales logged on
-this device and opens the history charts, COP calculator and chat reader at three. This is a
-nudge, not a security boundary — the count is in `localStorage` and every gated tool reads data
-the API already serves publicly. It exists because the index is only as good as what members
-log, so the thing the app needs is the thing that unlocks it, and because an approval queue
-would mean farmers waiting on an administrator. **The offtaker directory never locks**: a
+**Advanced tools are earned, but the ask comes after the value.** `src/lib/contribution.ts`
+still opens the history charts, COP calculator and chat reader at three logged sales, for the
+original reasons: the index is only as good as what members log, so the thing the app needs
+should be the thing that unlocks it, and an approval queue would mean farmers waiting on an
+administrator. Two things changed, because the old shape asked first and delivered second:
+
+- **The first three offer checks are free; the fourth asks for one logged sale.** Gating the
+  tools that make the case for the app, from a farmer who had not yet been helped by it once,
+  deterred the compliant and not the lurkers. Reciprocity after three demonstrations of value is
+  a fair exchange; a toll gate on a stranger is not.
+- **Tools open on contribution and stay open on freshness** (`FRESHNESS_DAYS`, 35). A lifetime
+  count rewarded a member who logged three sales last season and vanished, while the index they
+  were reading went stale. Freshness asks for what the index actually needs. A member with no
+  recorded timestamp is treated as fresh — the rule is for people who stopped contributing, not
+  for people who contributed before the app was counting.
+
+A stale contributor is never shown "20/3" or told to log three prices: `toolsWentStale` drives
+separate copy asking for one recent sale. Being told to start over reads as the app having
+forgotten them, which is worse than the lockout.
+
+Only `actual_sale` counts as a contribution. Recording an offer — even a refused one, which is
+valuable — is not the thing the index runs on, so it does not buy access.
+
+This is still a nudge, not a security boundary: the counts are in `localStorage` and every gated
+tool reads data the API already serves publicly. **The offtaker directory never locks**: a
 farmer with a perishable harvest needs a buyer's number today.
 
 Gating the tab *contents* is not enough — the navigation has to be gated too. Because the
@@ -188,6 +277,10 @@ configuration-changing writes require the `x-admin-token` header.
 | `POST` | `/api/prices/bulk` | public — WhatsApp import, max 500 per request |
 | `DELETE` | `/api/prices/:id` | **admin** |
 | `POST` | `/api/prices/reset` | **admin** |
+| `POST` | `/api/check-offer` | public — judges a buyer's offer, **writes no price record** |
+| `GET` | `/api/offer-checks/summary` | public — checks and refusals, last 7 days |
+| `POST` | `/api/pledges` | public — `x-pledge-key` header, one per device/hub/variety/week |
+| `GET` | `/api/pledges/summary` | public — the member floor and who is holding |
 | `GET` | `/api/price-bands`, `/api/cop-items` | public |
 | `PUT` | `/api/price-bands`, `/api/cop-items` | **admin** (upsert) |
 | `DELETE` | `/api/price-bands/:hub`, `/api/cop-items/:id` | **admin** |
@@ -251,6 +344,12 @@ stop a determined flood would also lock out a village. They are set to stop bulk
 without being reachable by a group of people logging real sales. A valid `ADMIN_TOKEN` bypasses
 them entirely — an admin importing a season of WhatsApp history is doing the work the limit
 protects, not the abuse it stops.
+
+`/api/check-offer` carries the loosest limit in the app (120/hour). It is the behaviour the app
+most wants, writes nothing but a counter, spends no Gemini quota, and a farmer haggling over
+several loads may legitimately check a dozen times in an afternoon. `/api/pledges` is capped at
+20/hour: a pledge is a once-a-week act per variety, so more than that is someone testing how far
+the published floor can be pushed.
 
 Each endpoint gets its own bucket, so exhausting one never blocks another. Reads are never
 limited.
@@ -364,11 +463,25 @@ without the first the app is non-persistent, without the second all admin action
 
 ## Known gaps
 
-- **Test coverage is limited to the going rate.** `npm test` covers `src/server/marketRate.ts`
-  (22 assertions). Everything else is verified by hand against a real Postgres.
+- **Test coverage is the decision logic only.** `npm test` covers `src/server/marketRate.ts`,
+  `offerVerdict.ts` and `pledgeFloor.ts`; `npm run test:api` covers those three through their
+  routes, and has been run against both the in-memory store and a real Postgres 16 (schema v4
+  applied three times over to confirm the migration is idempotent). `validation.ts` — the whole trust boundary — still has no
+  tests of its own, and the repositories are verified by hand against a real Postgres.
+- **A pledge is device-scoped, not verified.** One person with several browser profiles can
+  pledge several times and move a hub's member floor. Every surface labels the figure
+  self-reported for exactly this reason, and phone identity is the fix; see the member-floor
+  section above for where it slots in. Do not present the pledge floor as an association
+  decision while this is true.
+- **`offer_checks` grows without pruning.** It is one narrow row per check with no identity, so
+  it is cheap, but nothing deletes old rows and only the last 7 days are ever read. A retention
+  sweep belongs with the next migration.
 - **Three components still compute their own averages** — `PriceOverviewHero`,
   `PriceTrendChart` and the `predict-price` deterministic fallback — using the plain unfiltered
-  mean that `/api/market-rate` replaced. They will disagree with the headline figure.
+  mean that `/api/market-rate` replaced. They will disagree with the headline figure, and the
+  whole product is one trustworthy number, so this is the highest-value fix in the codebase.
+  `OfferCheck`, `PledgeCard` and the broadcast all read server-computed figures and must stay
+  that way.
 - **`/api/predict-price` calls Gemini on every records-count change**, with no caching.
   Deferred to a future release; the design is sketched in a `TODO(next release)` block above the
   route in `src/server/routes/ai.ts`. Rate limiting caps the damage in the meantime but does not

@@ -20,6 +20,7 @@ interface PriceRecordRow {
   notes: string;
   source: string;
   created_at: Date;
+  outcome: string | null;
 }
 
 function toPriceRecord(row: PriceRecordRow): PriceRecord {
@@ -38,12 +39,16 @@ function toPriceRecord(row: PriceRecordRow): PriceRecord {
     notes: row.notes,
     source: row.source as PriceRecord['source'],
     createdAt: row.created_at.toISOString(),
+    // Only ever set on a buyer_offer. Left off the object entirely when null so
+    // the shape matches a record created before the column existed.
+    ...(row.outcome ? { outcome: row.outcome as PriceRecord['outcome'] } : {}),
   };
 }
 
 const SELECT_COLUMNS = `
   id, type, price_per_kg, quantity_kg, transaction_type, production_method,
-  quality_grade, location, recorded_on, farmer_name, farmer_phone, notes, source, created_at
+  quality_grade, location, recorded_on, farmer_name, farmer_phone, notes, source,
+  created_at, outcome
 `;
 
 export interface ListOptions {
@@ -77,7 +82,7 @@ export async function insertPriceRecords(records: PriceRecord[]): Promise<PriceR
   // which matters when the database is a network hop away from the lambda.
   const values: unknown[] = [];
   const tuples = records.map((record, index) => {
-    const base = index * 14;
+    const base = index * 15;
     values.push(
       record.id,
       record.type,
@@ -93,15 +98,17 @@ export async function insertPriceRecords(records: PriceRecord[]): Promise<PriceR
       record.notes ?? '',
       record.source,
       record.createdAt,
+      record.outcome ?? null,
     );
-    const placeholders = Array.from({ length: 14 }, (_, i) => `$${base + i + 1}`);
+    const placeholders = Array.from({ length: 15 }, (_, i) => `$${base + i + 1}`);
     return `(${placeholders.join(', ')})`;
   });
 
   const { rows } = await query<PriceRecordRow>(
     `INSERT INTO price_records (
        id, type, price_per_kg, quantity_kg, transaction_type, production_method,
-       quality_grade, location, recorded_on, farmer_name, farmer_phone, notes, source, created_at
+       quality_grade, location, recorded_on, farmer_name, farmer_phone, notes, source,
+       created_at, outcome
      ) VALUES ${tuples.join(', ')}
      ON CONFLICT (id) DO NOTHING
      RETURNING ${SELECT_COLUMNS}`,
@@ -136,4 +143,26 @@ export async function listRateSamples(
     [type, sinceDate],
   );
   return rows.map((r) => ({ pricePerKg: Number(r.price_per_kg), date: r.recorded_on }));
+}
+
+/**
+ * Buyer offers a member reported turning down, for one week.
+ *
+ * This is the app's best content and it did not exist before: a refused lowball
+ * left no trace anywhere, so the group could never see that holding the line
+ * actually happens. Returns the price and location so the caller can decide
+ * which of these were below their own hub's floor.
+ */
+export async function listRefusedOffers(
+  sinceDate: string,
+): Promise<{ type: string; pricePerKg: number; location: string }[]> {
+  const { rows } = await query<{ type: string; price_per_kg: string; location: string }>(
+    `SELECT type, price_per_kg, location
+     FROM price_records
+     WHERE transaction_type = 'buyer_offer'
+       AND outcome = 'refused'
+       AND recorded_on >= $1`,
+    [sinceDate],
+  );
+  return rows.map((r) => ({ type: r.type, pricePerKg: Number(r.price_per_kg), location: r.location }));
 }
