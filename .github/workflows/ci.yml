@@ -1,0 +1,55 @@
+# Lint, test and build every pull request.
+#
+# Until now nothing ran the test suite except a contributor remembering to. The
+# going-rate, offer-verdict and pledge-floor rules are the load-bearing parts of
+# this app — they decide the number a farmer quotes to a buyer — and a suite
+# nothing executes decays quietly until it is worthless.
+#
+# `build:client` is included because it runs `check:secrets`, so a key that
+# reaches the client bundle fails here rather than on Vercel. Vercel does run
+# that scan too; catching it a step earlier costs nothing.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A second push to the same branch makes the first run's answer irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Lint, test, build
+    runs-on: ubuntu-latest
+    # No secrets are needed: the tests use the in-memory store, and the secret
+    # scan's env-value check simply has no variables to look for. Nothing here
+    # should ever require DATABASE_URL, GEMINI_API_KEY or ADMIN_TOKEN.
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 to match @types/node and the toolchain the app is developed
+      # against. The repo declares no `engines` field; this is the de facto
+      # baseline until it does.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # `npm ci` rather than `npm install`: it installs exactly the lockfile and
+      # fails if package.json and the lockfile have drifted apart, which is
+      # itself worth catching.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      # Runs check:secrets as part of the build, so a leaked key fails the PR.
+      - name: Build client
+        run: npm run build:client
